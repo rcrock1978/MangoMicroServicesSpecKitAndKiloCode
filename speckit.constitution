@@ -1,0 +1,5096 @@
+# Mango Microservices - Technical Constitution
+
+## Version: 3.0.0 (Grade A+) - .NET 10 Edition
+## Target Framework: .NET 10 / ASP.NET Core 10
+## Language: C# 13
+## Architecture: Microservices (E-Commerce Platform)
+## Last Updated: 2026-02-22
+
+## Technology Stack
+| Component | Technology | Version |
+|-----------|------------|---------|
+| Runtime | .NET | 10.0 |
+| Web Framework | ASP.NET Core | 10.0 |
+| Language | C# | 13.0 |
+| ORM | Entity Framework Core | 10.0 |
+| Database | SQL Server | 2022 |
+| API Gateway | Ocelot | 25.0+ |
+| Message Bus | MassTransit + RabbitMQ | 10.0 + 3.13 |
+| Authentication | JWT Bearer | - |
+| Mapping | AutoMapper | 13.0+ |
+| Logging | Serilog | 4.0+ |
+| API Docs | Swagger/OpenAPI | 7.0+ |
+| Containers | Docker + Kubernetes | - |
+
+---
+
+## 1. Architectural Principles
+
+### 1.1 Clean Architecture Layers
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Presentation Layer                    │
+│         (API Controllers, gRPC, DTOs, Validators)       │
+├─────────────────────────────────────────────────────────┤
+│                   Application Layer                      │
+│    (Use Cases, Application Services, DTO Mappers,        │
+│             Command/Query Handlers, Mediator)           │
+├─────────────────────────────────────────────────────────┤
+│                     Domain Layer                         │
+│  (Entities, Value Objects, Aggregates, Domain Services,  │
+│       Domain Events, Repository Interfaces,             │
+│            Domain Exceptions, invariants)                │
+├─────────────────────────────────────────────────────────┤
+│                 Infrastructure Layer                     │
+│  (EF Core, SQL Server, RabbitMQ, Redis, Logging,         │
+│    Authentication, External Services, Repositories)      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Domain-Driven Design (DDD) Bounded Contexts
+
+| Context | Responsibility | Database | Microservice |
+|---------|---------------|----------|--------------|
+| **Auth** | Users, Roles, Permissions, Tokens, JWT | IdentityDb | Mango.Services.AuthAPI |
+| **Product** | Products, Categories, Inventory | CatalogDb | Mango.Services.ProductAPI |
+| **Cart** | Shopping Cart, Cart Items, Persistence | CartDb | Mango.Services.ShoppingCartAPI |
+| **Order** | Orders, OrderItems, Payment Integration | OrderDb | Mango.Services.OrderAPI |
+| **Email** | Transactional Emails, Templates | EmailDb | Mango.Services.EmailAPI |
+| **Coupon** | Discount Codes, Promotions | CouponDb | Mango.Services.CouponAPI |
+| **Reward** | Loyalty Points, Rewards | RewardDb | Mango.Services.RewardAPI |
+| **Gateway** | API Routing, Aggregation, Auth | N/A | Mango.GatewaySolution |
+| **Frontend** | MVC UI, User Experience | N/A | Mango.Web |
+| **Messaging** | RabbitMQ Events, Integration Bus | N/A | Mango.MessageBus |
+
+### 1.3 Communication Patterns
+- **Synchronous**: REST APIs (primary), gRPC (internal high-performance)
+- **Asynchronous**: RabbitMQ for event-driven communication
+- **CQRS**: Command Query Responsibility Segregation for read/write separation
+
+---
+
+## 2. SOLID Principles Implementation
+
+### 2.1 Single Responsibility Principle (SRP)
+- Each class has one reason to change
+- Controllers handle HTTP concerns only
+- Use Cases/Handlers handle business logic
+- Repositories handle data access
+- Example: `IProductRepository`, `ICatalogQueryService` are separate
+
+### 2.2 Open/Closed Principle (OCP)
+- Open for extension, closed for modification
+- Use abstract base classes and interfaces
+- Strategy pattern for interchangeable algorithms
+- Mediator pattern for command/query handling
+
+### 2.3 Liskov Substitution Principle (LSP)
+- Derived classes must be substitutable for base classes
+- Use interfaces for contracts
+- Generic repositories with proper constraints
+
+### 2.4 Interface Segregation Principle (ISP)
+- Clients should not depend on interfaces they don't use
+- Small, focused interfaces (e.g., `IReadOnlyRepository<T>`)
+- Separate command and query repositories
+
+### 2.5 Dependency Inversion Principle (DIP)
+- High-level modules depend on abstractions
+- Use DI container (Microsoft.Extensions.DependencyInjection)
+- All dependencies injected via constructor
+- No service locator pattern
+
+---
+
+## 3. Microservices Best Practices
+
+### 3.1 Service Boundaries
+```csharp
+// Each microservice has its own:
+namespace Mango.Services.Catalog
+{
+    // Domain Layer
+    // - Entities: Product, Category
+    // - Value Objects: Money, ProductDescription
+    // - Aggregates: ProductAggregate
+    // - Domain Events: ProductCreatedEvent
+    
+    // Application Layer
+    // - Commands: CreateProductCommand
+    // - Queries: GetProductByIdQuery
+    // - Handlers: CommandHandlers, QueryHandlers
+    // - DTOs
+    
+    // Infrastructure Layer
+    // - DbContext
+    // - Repositories
+    // - Mappings
+}
+```
+
+### 3.2 Event-Driven Architecture (RabbitMQ)
+```
+csharp
+// Event Definitions
+public record ProductCreatedEvent(Guid ProductId, string Name, decimal Price);
+public record OrderPlacedEvent(Guid OrderId, Guid CustomerId, decimal Total);
+public record PaymentProcessedEvent(Guid PaymentId, Guid OrderId, bool Success);
+
+// Publisher Interface
+public interface IEventPublisher
+{
+    Task PublishAsync<T>(T @event, CancellationToken ct = default) where T : IIntegrationEvent;
+}
+
+// Consumer Interface
+public interface IEventConsumer<T> where T : IIntegrationEvent
+{
+    Task ConsumeAsync(T @event, CancellationToken ct = default);
+}
+
+// Exchange Types: Direct, Topic, Fanout
+// Queue Naming Convention: {ServiceName}.{EventName}
+// Dead Letter Queues for failed messages
+```
+
+### 3.3 API Gateway Pattern
+- Single entry point for all services
+- Request routing, aggregation
+- Authentication/Authorization
+- Rate limiting, caching
+
+---
+
+## 4. Grade A+ Architectural Quality Standards
+
+### 4.1 Service Autonomy (Required for Grade A+)
+- Each microservice owns its data and business logic
+- No shared databases between services
+- Service-to-service communication via well-defined APIs
+- Each service can be deployed independently
+- Circuit breaker pattern for all external service calls
+
+### 4.2 Repository Pattern with Unit of Work
+```csharp
+// Repository Interface
+public interface IRepository<T> where T : Entity
+{
+    Task<T> GetByIdAsync(Guid id);
+    Task<T> GetByIdAsync(Guid id, params Expression<Func<T, object>>[] includes);
+    Task<IEnumerable<T>> GetAllAsync();
+    Task<IEnumerable<T>> FindAsync(Expression<Func<T, bool>> predicate);
+    Task<T> AddAsync(T entity);
+    Task UpdateAsync(T entity);
+    Task DeleteAsync(Guid id);
+    Task<int> CountAsync(Expression<Func<T, bool>> predicate = null);
+}
+
+// Generic Repository Implementation
+public class Repository<T> : IRepository<T> where T : Entity
+{
+    protected readonly DbContext _context;
+    protected readonly DbSet<T> _dbSet;
+    
+    public Repository(DbContext context)
+    {
+        _context = context;
+        _dbSet = context.Set<T>();
+    }
+    
+    public virtual async Task<T> GetByIdAsync(Guid id)
+    {
+        return await _dbSet.FindAsync(id);
+    }
+    
+    public virtual async Task<T> GetByIdAsync(Guid id, 
+        params Expression<Func<T, object>>[] includes)
+    {
+        IQueryable<T> query = _dbSet;
+        foreach (var include in includes)
+            query = query.Include(include);
+        return await query.FirstOrDefaultAsync(e => e.Id == id);
+    }
+    
+    public virtual async Task<IEnumerable<T>> GetAllAsync()
+        => await _dbSet.ToListAsync();
+    
+    public virtual async Task<IEnumerable<T>> FindAsync(
+        Expression<Func<T, bool>> predicate)
+        => await _dbSet.Where(predicate).ToListAsync();
+    
+    public virtual async Task<T> AddAsync(T entity)
+    {
+        await _dbSet.AddAsync(entity);
+        return entity;
+    }
+    
+    public virtual Task UpdateAsync(T entity)
+    {
+        _dbSet.Update(entity);
+        return Task.CompletedTask;
+    }
+    
+    public virtual Task DeleteAsync(Guid id)
+    {
+        var entity = _dbSet.Find(id);
+        if (entity != null) _dbSet.Remove(entity);
+        return Task.CompletedTask;
+    }
+}
+
+// Unit of Work Interface
+public interface IUnitOfWork : IDisposable
+{
+    IProductRepository Products { get; }
+    ICategoryRepository Categories { get; }
+    Task<int> SaveChangesAsync(CancellationToken ct = default);
+    Task BeginTransactionAsync();
+    Task CommitTransactionAsync();
+    Task RollbackTransactionAsync();
+}
+
+// Unit of Work Implementation
+public class UnitOfWork : IUnitOfWork
+{
+    private readonly DbContext _context;
+    private IDbContextTransaction _transaction;
+    
+    public UnitOfWork(DbContext context) => _context = context;
+    
+    public async Task<int> SaveChangesAsync(CancellationToken ct = default)
+        => await _context.SaveChangesAsync(ct);
+    
+    public async Task BeginTransactionAsync()
+        => _transaction = await _context.Database.BeginTransactionAsync();
+    
+    public async Task CommitTransactionAsync()
+    {
+        if (_transaction != null)
+        {
+            await _transaction.CommitAsync();
+            await _transaction.DisposeAsync();
+            _transaction = null;
+        }
+    }
+    
+    public async Task RollbackTransactionAsync()
+    {
+        if (_transaction != null)
+        {
+            await _transaction.RollbackAsync();
+            await _transaction.DisposeAsync();
+            _transaction = null;
+        }
+    }
+    
+    public void Dispose() => _transaction?.Dispose();
+}
+
+// Usage in Service
+public class ProductService : IProductService
+{
+    private readonly IUnitOfWork _unitOfWork;
+    
+    public async Task CreateProductAsync(CreateProductCommand command)
+    {
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var product = new Product { Name = command.Name, Price = command.Price };
+            await _unitOfWork.Products.AddAsync(product);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitTransactionAsync();
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync();
+            throw;
+        }
+    }
+}
+```
+
+### 4.3 Resilience Patterns
+
+### 4.4 Mediator Pattern (CQRS)
+```csharp
+// Commands
+public record CreateProductCommand(string Name, decimal Price, Guid CategoryId) : IRequest<ProductDto>;
+public record UpdateProductCommand(Guid Id, string Name, decimal Price) : IRequest<ProductDto>;
+public record DeleteProductCommand(Guid Id) : IRequest<bool>;
+
+// Queries
+public record GetProductByIdQuery(Guid Id) : IRequest<ProductDto>;
+public record GetProductsQuery(int Page, int PageSize, string Search) : IRequest<PagedResult<ProductDto>>;
+
+// Command Handler
+public class CreateProductCommandHandler : IRequestHandler<CreateProductCommand, ProductDto>
+{
+    private readonly IProductRepository _repository;
+    private readonly IMapper _mapper;
+    
+    public async Task<ProductDto> Handle(CreateProductCommand request, CancellationToken ct)
+    {
+        var product = new Product
+        {
+            Name = request.Name,
+            Price = request.Price,
+            CategoryId = request.CategoryId
+        };
+        
+        await _repository.AddAsync(product);
+        await _repository.SaveChangesAsync(ct);
+        
+        return _mapper.Map<ProductDto>(product);
+    }
+}
+
+// Query Handler
+public class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, PagedResult<ProductDto>>
+{
+    private readonly IProductRepository _repository;
+    private readonly IMapper _mapper;
+    
+    public async Task<PagedResult<ProductDto>> Handle(GetProductsQuery request, CancellationToken ct)
+    {
+        var query = _repository.FindAsync(p => p.Name.Contains(request.Search));
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .ToListAsync(ct);
+        
+        return new PagedResult<ProductDto>
+        {
+            Items = _mapper.Map<List<ProductDto>>(items),
+            TotalCount = total,
+            Page = request.Page,
+            PageSize = request.PageSize
+        };
+    }
+}
+
+// Controller using Mediator
+[ApiController]
+[Route("api/v1/products")]
+public class ProductsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    
+    public ProductsController(IMediator mediator) => _mediator = mediator;
+    
+    [HttpGet]
+    public async Task<PagedResult<ProductDto>> Get([FromQuery] GetProductsQuery query)
+        => await _mediator.Send(query);
+    
+    [HttpGet("{id}")]
+    public async Task<ProductDto> Get(Guid id)
+        => await _mediator.Send(new GetProductByIdQuery(id));
+    
+    [HttpPost]
+    public async Task<ProductDto> Create([FromBody] CreateProductCommand command)
+        => await _mediator.Send(command);
+    
+    [HttpPut("{id}")]
+    public async Task<ProductDto> Update(Guid id, [FromBody] UpdateProductCommand command)
+        => await _mediator.Send(command with { Id = id });
+    
+    [HttpDelete("{id}")]
+    public async Task<bool> Delete(Guid id)
+        => await _mediator.Send(new DeleteProductCommand(id));
+}
+
+// Pipeline Behaviors (Cross-cutting concerns)
+public class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    private readonly IEnumerable<IValidator<TRequest>> _validators;
+    
+    public ValidationBehavior(IEnumerable<IValidator<TRequest>> validators)
+        => _validators = validators;
+    
+    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, 
+        CancellationToken ct)
+    {
+        var context = new ValidationContext<TRequest>(request);
+        var results = await Task.WhenAll(
+            _validators.Select(v => v.ValidateAsync(context, ct)));
+        
+        var failures = results.SelectMany(r => r.Errors).Where(f => f != null).ToList();
+        if (failures.Any())
+            throw new ValidationException(failures);
+        
+        return await next();
+    }
+}
+
+public class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+{
+    private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;
+    
+    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next,
+        CancellationToken ct)
+    {
+        _logger.LogInformation("Handling {RequestType}", typeof(TRequest).Name);
+        var response = await next();
+        _logger.LogInformation("Handled {RequestType}", typeof(TRequest).Name);
+        return response;
+    }
+}
+```
+
+### 4.5 FluentValidation Examples
+```csharp
+// Command DTO
+public record CreateProductCommand(string Name, decimal Price, Guid CategoryId, string Description);
+
+// Validator
+public class CreateProductCommandValidator : AbstractValidator<CreateProductCommand>
+{
+    public CreateProductCommandValidator()
+    {
+        RuleFor(x => x.Name)
+            .NotEmpty().WithMessage("Product name is required")
+            .MaximumLength(200).WithMessage("Name cannot exceed 200 characters");
+            
+        RuleFor(x => x.Price)
+            .GreaterThan(0).WithMessage("Price must be greater than 0")
+            .LessThan(100000).WithMessage("Price cannot exceed 100,000");
+            
+        RuleFor(x => x.CategoryId)
+            .NotEmpty().WithMessage("Category is required");
+            
+        RuleFor(x => x.Description)
+            .MaximumLength(2000).WithMessage("Description cannot exceed 2000 characters");
+    }
+}
+
+// Complex Validator
+public class CreateOrderCommandValidator : AbstractValidator<CreateOrderCommand>
+{
+    public CreateOrderCommandValidator()
+    {
+        RuleFor(x => x.UserId).NotEmpty();
+        RuleFor(x => x.Items).NotEmpty().WithMessage("Order must have at least one item");
+        RuleForEach(x => x.Items).SetValidator(new OrderItemDtoValidator());
+        RuleFor(x => x.ShippingAddress).NotNull().SetValidator(new ShippingAddressValidator());
+    }
+}
+
+public class OrderItemDtoValidator : AbstractValidator<OrderItemDto>
+{
+    public OrderItemDtoValidator()
+    {
+        RuleFor(x => x.ProductId).NotEmpty();
+        RuleFor(x => x.Quantity).GreaterThan(0).LessThan(100);
+    }
+}
+
+// Registration
+public static class ValidationExtensions
+{
+    public static IServiceCollection AddValidators(this IServiceCollection services)
+    {
+        services.AddValidatorsFromAssemblyContaining<CreateProductCommandValidator>();
+        return services;
+    }
+}
+
+// Custom Attribute
+public class ValidEmailAttribute : ValidationAttribute
+{
+    protected override ValidationResult IsValid(object value, ValidationContext context)
+    {
+        if (value is string email && !string.IsNullOrEmpty(email))
+        {
+            var regex = new Regex(@"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$");
+            if (!regex.IsMatch(email))
+                return new ValidationResult("Invalid email format");
+        }
+        return ValidationResult.Success;
+    }
+}
+```
+
+### 4.6 Distributed Tracing (W3C Trace Context)
+```csharp
+// Circuit Breaker Configuration
+services.AddHttpClient<ProductService>()
+    .AddCircuitBreaker(new CircuitBreakerPolicyOptions
+    {
+        FailureRatio = 0.5,
+        SamplingDuration = TimeSpan.FromSeconds(10),
+        MinimumThroughput = 5,
+        BreakDuration = TimeSpan.FromSeconds(30)
+    })
+    .AddRetryPolicy(3)
+    .AddTimeoutPolicy(TimeSpan.FromSeconds(10));
+
+// Polly Policies
+- Retry: 3 attempts with exponential backoff
+- Circuit Breaker: Open after 50% failure rate
+- Timeout: 10 seconds per request
+- Bulkhead: Max 10 concurrent requests
+```
+
+### 4.3 Distributed Tracing (Required)
+- All services must propagate W3C Trace Context headers
+- Unique correlation ID for each request across services
+- OpenTelemetry instrumentation for:
+  - HTTP requests/responses
+  - Database queries
+  - Message bus publish/subscribe
+  - Custom business operations
+- Trace sampling: 100% for errors, 10% for success
+
+### 4.4 API Contract Standards
+```csharp
+// Standard API Response Wrapper
+public class ApiResponse<T>
+{
+    public bool Success { get; set; }
+    public T Data { get; set; }
+    public string Message { get; set; }
+    public List<string> Errors { get; set; }
+    public string CorrelationId { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+
+// Pagination Response
+public class PagedResponse<T> : ApiResponse<T>
+{
+    public int PageNumber { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages { get; set; }
+    public int TotalRecords { get; set; }
+    public bool HasPrevious => PageNumber > 1;
+    public bool HasNext => PageNumber < TotalPages;
+}
+```
+
+### 4.5 Service Mesh Readiness
+- Kubernetes-native deployment manifests
+- Envoy proxy configuration
+- mTLS between services
+- Service discovery via Kubernetes DNS
+- Environment-based configuration
+
+### 4.6 Data Integrity
+- Eventual consistency for cross-service operations
+- SAGA pattern for distributed transactions
+- Idempotency keys for all write operations
+- Optimistic concurrency control
+- Compensation actions for failed operations
+
+---
+
+## 5. Security-First Design
+
+### 4.1 JWT Authentication
+```
+csharp
+// JWT Configuration
+services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = configuration["Jwt:Issuer"],
+            ValidAudience = configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(configuration["Jwt:SecretKey"]))
+        };
+    });
+
+// Claims: UserId, Email, Roles
+// Token expiry: 15 minutes (access), 7 days (refresh)
+```
+
+### 4.2 Role-Based Access Control (RBAC)
+```
+csharp
+// Roles
+public enum Roles
+{
+    SuperAdmin,
+    Admin,
+    Manager,
+    Customer,
+    Guest
+}
+
+// Permission Attributes
+[Authorize(Roles = "Admin")]
+[HasPermission("products:write")]
+
+// Policy-Based Authorization
+services.AddAuthorization(options =>
+{
+    options.AddPolicy("CanManageProducts", policy =>
+        policy.RequireClaim("permission", "products:write"));
+});
+```
+
+### 4.3 Security Headers
+```
+csharp
+// In Startup/Program.cs
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Add("Strict-Transport-Security", "max-age=31536000");
+    await next();
+});
+```
+
+### 4.4 Input Validation
+- FluentValidation for complex validation
+- DataAnnotations for simple cases
+- Request DTOs must be validated
+- No trusting user input
+
+---
+
+## 6. Entity Framework Core 10 with SQL Server
+
+### 6.1 Database Configuration
+```csharp
+// DbContext Configuration
+public class CatalogDbContext : DbContext
+{
+    public DbSet<Product> Products { get; set; }
+    public DbSet<Category> Categories { get; set; }
+    public DbSet<Brand> Brands { get; set; }
+    
+    public CatalogDbContext(DbContextOptions<CatalogDbContext> options) 
+        : base(options)
+    {
+    }
+    
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        // Fluent API configurations
+        builder.Entity<Product>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Price).HasColumnType("decimal(18,2)");
+            entity.HasIndex(e => e.Sku).IsUnique();
+            entity.HasIndex(e => e.Slug).IsUnique();
+            
+            // Ownership configuration
+            entity.OwnsOne(p => p.PriceMoney, pm =>
+            {
+                pm.Property(m => m.Amount).HasColumnType("decimal(18,2)");
+                pm.Property(m => m.Currency).HasMaxLength(3);
+            });
+        });
+        
+        // Global query filters for soft deletes
+        builder.Entity<Product>().HasQueryFilter(p => p.IsDeleted == false);
+    }
+}
+
+// Connection Resiliency with SQL Server
+services.AddDbContext<CatalogDbContext>(options =>
+    options.UseSqlServer(connectionString,
+        sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null);
+            
+            sqlOptions.CommandTimeout(30);
+            sqlOptions.EnableSensitiveDataLogging();
+            sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+        }));
+
+// Database-per-service pattern - each service has its own database
+// AuthAPI → IdentityDb
+// ProductAPI → CatalogDb
+// CartAPI → CartDb
+// OrderAPI → OrderDb
+// CouponAPI → CouponDb
+// RewardAPI → RewardDb
+// EmailAPI → EmailDb
+```
+
+### 6.2 Migrations Strategy
+- One DbContext per microservice
+- Automated migrations in CI/CD
+- Migration naming: `{Timestamp}_{MigrationName}`
+- Seed data for reference tables
+- Use `dotnet ef` CLI for migrations
+
+---
+
+## 7. Testing Strategy
+
+### 6.1 Unit Tests
+```
+csharp
+// Test Structure: AAA Pattern
+[Fact]
+public async Task CreateProductCommandHandler_ValidRequest_ReturnsSuccess()
+{
+    // Arrange
+    var command = new CreateProductCommand("Test Product", 99.99m);
+    var handler = new CreateProductCommandHandler(_repository, _mapper);
+    
+    // Act
+    var result = await handler.Handle(command, CancellationToken.None);
+    
+    // Assert
+    result.Should().NotBeNull();
+    result.Id.Should().NotBeEmpty();
+}
+
+// Coverage Target: 80%+ for domain logic
+// Test Framework: xUnit, FluentAssertions, Moq
+```
+
+### 6.2 Integration Tests
+```
+csharp
+// Database Integration Tests
+public class ProductRepositoryTests : IClassFixture<DatabaseFixture>
+{
+    [Fact]
+    public async Task GetByIdAsync_ExistingProduct_ReturnsProduct()
+    {
+        // Use test containers or in-memory database
+        // Test actual database operations
+    }
+}
+
+// API Integration Tests
+public class ProductsControllerIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    [Fact]
+    public async Task GetProduct_ValidId_ReturnsOkResult()
+    {
+        // Test full HTTP pipeline
+        // Use TestServer or WebApplicationFactory
+    }
+}
+```
+
+### 6.3 Contract Tests
+```
+csharp
+// Consumer-Driven Contract Testing
+// Pact.NET for provider/consumer contracts
+[Fact]
+public void VerifyProductApi_Contract()
+{
+    var pact = new PactBuilder()
+        .ServiceConsumer("OrderService")
+        .HasPactWith("ProductService");
+    
+    pact.MockService.Start();
+    // Verify contract
+}
+```
+
+---
+
+## 8. Containerized Deployment
+
+### 8.1 Docker Configuration
+```dockerfile
+# Multi-stage Dockerfile for .NET 10 Microservice
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+WORKDIR /app
+EXPOSE 80
+EXPOSE 443
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY ["src/Services/ProductAPI/Mango.Services.ProductAPI.csproj", "src/Services/ProductAPI/"]
+RUN dotnet restore "src/Services/ProductAPI/Mango.Services.ProductAPI.csproj"
+COPY . .
+RUN dotnet build "src/Services/ProductAPI/Mango.Services.ProductAPI.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "src/Services/ProductAPI/Mango.Services.ProductAPI.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# Non-root user for security
+RUN addgroup --system --gid 1000 appgroup && \
+    adduser --system --uid 1000 appuser
+USER appuser
+
+ENTRYPOINT ["dotnet", "Mango.Services.ProductAPI.dll"]
+```
+
+### 8.2 Docker Compose - .NET 10 Local Development
+```yaml
+# docker-compose.yml for .NET 10 Development
+version: '3.8'
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mango-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=@StrongPassword123
+    ports:
+      - "1433:1433"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=mango
+      - RABBITMQ_DEFAULT_PASS=mango123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  product-api:
+    build:
+      context: ./src/Services/ProductAPI
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoProduct;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5003:80"
+    depends_on:
+      - sqlserver
+      - rabbitmq
+```
+
+### 8.2 Kubernetes Namespace & Config
+```yaml
+# k8s/00-namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mango-production
+  labels:
+    environment: production
+    app: mango-ecommerce
+---
+# k8s/01-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mango-config
+  namespace: mango-production
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:80"
+  Logging__LogLevel__Default: "Information"
+  Database__Provider: "SqlServer"
+  Redis__InstanceName: "mango_"
+  RabbitMQ__Host: "rabbitmq.mango-messaging.svc.cluster.local"
+---
+# k8s/02-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mango-secrets
+  namespace: mango-production
+type: Opaque
+stringData:
+  ConnectionStrings__DefaultConnection: "Server=sqlserver;Database=Mango;User=sa;Password=@StrongPassword"
+  ConnectionStrings__Redis: "redis:6379"
+  Jwt__SecretKey: "your-256-bit-secret-key-here-min-32-chars"
+  Jwt__Issuer: "mango-api"
+  Jwt__Audience: "mango-client"
+  Email__ApiKey: "SG.xxxxxx"
+```
+
+### 8.3 Kubernetes Deployment (ProductAPI Example)
+```yaml
+# k8s/03-productapi-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-api
+  namespace: mango-production
+  labels:
+    app: product-api
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: product-api
+  template:
+    metadata:
+      labels:
+        app: product-api
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+    spec:
+      serviceAccountName: mango-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: product-api
+        image: mango/product-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: mango-config
+              key: ASPNETCORE_ENVIRONMENT
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: mango-secrets
+              key: ConnectionStrings__DefaultConnection
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - product-api
+              topologyKey: kubernetes.io/hostname
+---
+# k8s/04-productapi-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-api
+  namespace: mango-production
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: product-api
+```
+
+### 8.4 Horizontal Pod Autoscaler
+```yaml
+# k8s/05-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: product-api-hpa
+  namespace: mango-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: product-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+### 8.5 Kubernetes Ingress (API Gateway)
+```yaml
+# k8s/10-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mango-ingress
+  namespace: mango-production
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.mangoecommerce.com
+    secretName: mango-tls-cert
+  rules:
+  - host: api.mangoecommerce.com
+    http:
+      paths:
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-api
+            port:
+              number: 80
+      - path: /api/products
+        pathType: Prefix
+        backend:
+          service:
+            name: product-api
+            port:
+              number: 80
+      - path: /api/cart
+        pathType: Prefix
+        backend:
+          service:
+            name: cart-api
+            port:
+              number: 80
+      - path: /api/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: order-api
+            port:
+              number: 80
+```
+
+### 8.6 Service Mesh (Istio) Configuration
+```yaml
+# k8s/20-istio-virtualservice.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: product-api-vs
+  namespace: mango-production
+spec:
+  hosts:
+  - product-api
+  http:
+  - route:
+    - destination:
+        host: product-api
+    timeout: 10s
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+---
+# k8s/21-istio-destinationrule.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: product-api-dr
+  namespace: mango-production
+spec:
+  host: product-api
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        h2UpgradePolicy: UPGRADE
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 1000
+    loadBalancer:
+      simple: LEAST_REQUEST
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+```
+
+### 8.7 Network Policies
+```yaml
+# k8s/31-network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: product-api-network-policy
+  namespace: mango-production
+spec:
+  podSelector:
+    matchLabels:
+      app: product-api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gateway
+    - podSelector:
+        matchLabels:
+          app: order-api
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: sqlserver
+    ports:
+    - protocol: TCP
+      port: 1433
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+```
+
+### 8.8 Resource Quotas & Limits
+```yaml
+# k8s/40-resourcequota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mango-quota
+  namespace: mango-production
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: "20Gi"
+    limits.cpu: "20"
+    limits.memory: "40Gi"
+    pods: "50"
+    services: "20"
+---
+# k8s/41-limitrange.yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mango-limits
+  namespace: mango-production
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: "2Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    default:
+      cpu: "200m"
+      memory: "256Mi"
+    type: Container
+```
+
+### 8.9 Service Deployment Summary
+| Service | Replicas | CPU Request | Memory | Storage |
+|---------|----------|-------------|--------|---------|
+| Gateway | 3 | 200m | 256Mi | - |
+| AuthAPI | 3 | 200m | 256Mi | - |
+| ProductAPI | 3 | 200m | 256Mi | - |
+| CartAPI | 3 | 200m | 512Mi | 1Gi (Redis) |
+| OrderAPI | 3 | 200m | 256Mi | - |
+| CouponAPI | 2 | 100m | 128Mi | - |
+| RewardAPI | 2 | 100m | 128Mi | - |
+| EmailAPI | 2 | 100m | 128Mi | - |
+| Web | 3 | 200m | 256Mi | - |
+
+## 8.10 Docker Compose - Local Development
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # ============================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================
+  
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mango-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=@StrongPassword123
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P @StrongPassword123 -Q "SELECT 1"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mango-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mango-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - mango-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mango-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=mango
+      - RABBITMQ_DEFAULT_PASS=mango123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mango-network
+
+  # ============================================
+  # MICROSERVICES
+  # ============================================
+
+  mango-gateway:
+    build:
+      context: ./src
+      dockerfile: ../Mango.GatewaySolution/Dockerfile
+    container_name: mango-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "5000:80"
+    depends_on:
+      - auth-api
+      - product-api
+      - cart-api
+      - order-api
+      - coupon-api
+      - reward-api
+      - email-api
+    networks:
+      - mango-network
+
+  mango-web:
+    build:
+      context: ./src
+      dockerfile: ../Mango.Web/Dockerfile
+    container_name: mango-web
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - GatewayUrl=http://mango-gateway:80
+    ports:
+      - "5001:80"
+    depends_on:
+      - mango-gateway
+    networks:
+      - mango-network
+
+  auth-api:
+    build:
+      context: ./src/Services/AuthAPI
+      dockerfile: Dockerfile
+    container_name: mango-auth-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoAuth;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - Jwt__SecretKey=SuperSecretKeyForDevelopmentMustBe32Characters!
+      - Jwt__Issuer=mango-api
+      - Jwt__Audience=mango-client
+    ports:
+      - "5002:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  product-api:
+    build:
+      context: ./src/Services/ProductAPI
+      dockerfile: Dockerfile
+    container_name: mango-product-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoProduct;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5003:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  cart-api:
+    build:
+      context: ./src/Services/ShoppingCartAPI
+      dockerfile: Dockerfile
+    container_name: mango-cart-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoCart;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - Redis__Host=redis
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5004:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  order-api:
+    build:
+      context: ./src/Services/OrderAPI
+      dockerfile: Dockerfile
+    container_name: mango-order-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoOrder;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5005:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  coupon-api:
+    build:
+      context: ./src/Services/CouponAPI
+      dockerfile: Dockerfile
+    container_name: mango-coupon-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoCoupon;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+    ports:
+      - "5006:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  reward-api:
+    build:
+      context: ./src/Services/RewardAPI
+      dockerfile: Dockerfile
+    container_name: mango-reward-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoReward;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+    ports:
+      - "5007:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  email-api:
+    build:
+      context: ./src/Services/EmailAPI
+      dockerfile: Dockerfile
+    container_name: mango-email-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoEmail;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+      - Email__SendGridKey=dummy_key_for_dev
+    ports:
+      - "5008:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  # ============================================
+  # OBSERVABILITY
+  # ============================================
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: mango-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - mango-network
+
+  seq:
+    image: datalust/seq:latest
+    container_name: mango-seq
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5341:80"
+    networks:
+      - mango-network
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: mango-portainer
+    ports:
+      - "9000:8000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - mango-network
+
+# ============================================
+# NETWORKS & VOLUMES
+# ============================================
+
+networks:
+  mango-network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
+  redis_data:
+  rabbitmq_data:
+  portainer_data:
+```
+
+### 8.11 Docker Compose - Service Ports Summary
+| Service | Container Name | Port | Internal Port |
+|---------|---------------|------|---------------|
+| Web (Frontend) | mango-web | 5001 | 80 |
+| API Gateway | mango-gateway | 5000 | 80 |
+| AuthAPI | mango-auth-api | 5002 | 80 |
+| ProductAPI | mango-product-api | 5003 | 80 |
+| CartAPI | mango-cart-api | 5004 | 80 |
+| OrderAPI | mango-order-api | 5005 | 80 |
+| CouponAPI | mango-coupon-api | 5006 | 80 |
+| RewardAPI | mango-reward-api | 5007 | 80 |
+| EmailAPI | mango-email-api | 5008 | 80 |
+| SQL Server | mango-sqlserver | 1433 | 1433 |
+| Redis | mango-redis | 6379 | 6379 |
+| RabbitMQ | mango-rabbitmq | 5672, 15672 | 5672, 15672 |
+| Jaeger (Tracing) | mango-jaeger | 16686 | 16686 |
+| Seq (Logging) | mango-seq | 5341 | 80 |
+| Portainer | mango-portainer | 9000, 9443 | 8000, 9443 |
+
+### 8.12 Docker Compose - Quick Start Commands
+```bash
+# Start all services
+docker-compose up -d
+
+# Start specific service with dependencies
+docker-compose up -d product-api
+
+# View logs
+docker-compose logs -f auth-api
+
+# Stop all services
+docker-compose down
+
+# Rebuild services
+docker-compose build --no-cache
+
+# Remove volumes (full reset)
+docker-compose down -v
+
+# Scale a service
+docker-compose up -d --scale product-api=3
+
+# Access container shell
+docker exec -it mango-product-api sh
+```
+
+### 8.13 Docker Compose - Environment Variables
+```bash
+# .env file for local development
+COMPOSE_PROJECT_NAME=mango
+
+# Database
+SA_PASSWORD=@StrongPassword123
+
+# Redis
+REDIS_PASSWORD=
+
+# RabbitMQ
+RABBITMQ_USER=mango
+RABBITMQ_PASS=mango123
+
+# JWT
+JWT_SECRET_KEY=SuperSecretKeyForDevelopmentMustBe32Characters!
+
+# URLs
+GATEWAY_URL=http://localhost:5000
+WEB_URL=http://localhost:5001
+
+# Email (Development)
+EMAIL_API_KEY=SG.dummy_key_for_dev
+```
+
+---
+
+## 9. Code Quality Standards
+
+### 9.1 API Versioning
+```csharp
+// API Versioning Configuration
+services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = ApiVersionReader.Combine(
+        new UrlSegmentApiVersionReader(),
+        new HeaderApiVersionReader("X-Api-Version"));
+});
+
+// Controller Attribute
+[ApiController]
+[Route("api/v{version:apiVersion}/[controller]")]
+[ApiVersion("1.0")]
+[ApiVersion("2.0")]
+public class ProductsController : ControllerBase { }
+```
+
+### 9.2 Health Checks
+```csharp
+// Health Check Configuration
+services.AddHealthChecks()
+    .AddDbContextCheck<CatalogDbContext>("catalog-db", tags: new[] { "db", "sql" })
+    .AddRabbitMQ(new Uri("amqp://localhost"), name: "rabbitmq", tags: new[] { "mq" })
+    .AddRedis("localhost:6379", name: "redis", tags: new[] { "cache" })
+    .AddUrlGroup(new Uri("https://api.catalog.com/health"), name: "catalog-api")
+    .AddNpgSql(connectionString, name: "postgres");
+
+// Endpoint
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse,
+    ResultStatusCodes =
+    {
+        [HealthStatus.Healthy] = StatusCodes.Status200OK,
+        [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
+    }
+});
+
+// Custom Health Check
+public class CustomServiceHealthCheck : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context, 
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Check service-specific dependency
+            return HealthCheckResult.Healthy("Service is healthy");
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy(ex.Message);
+        }
+    }
+}
+```
+
+### 9.3 OpenTelemetry Observability
+```csharp
+// OpenTelemetry Configuration
+services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource
+        .AddService("ProductAPI")
+        .AddAttributes(new Dictionary<string, object>
+        {
+            ["deployment.environment"] = environment,
+            ["service.version"] = "1.0.0"
+        }))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        .AddSource("Mango.ProductAPI")
+        .AddJaegerExporter()
+        .AddZipkinExporter())
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddPrometheusExporter());
+
+// Structured Logging with Serilog
+Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Application", "ProductAPI")
+    .Enrich.WithProperty("Environment", environment)
+    .WriteTo.Console(outputTemplate: 
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.Seq("http://localhost:5341")
+    .CreateLogger();
+```
+
+### 9.4 Swagger/OpenAPI Documentation
+```csharp
+// Swagger Configuration
+services.AddEndpointsApiExplorer();
+services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Mango Product API",
+        Version = "v1",
+        Description = "Product Catalog Microservice API",
+        Contact = new OpenApiContact { Name = "Mango Team" }
+    });
+    
+    // Add JWT authentication to Swagger
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+    
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Product API V1");
+    c.RoutePrefix = "swagger";
+});
+```
+
+---
+
+## 10. Performance Optimization
+
+### 9.1 Caching Strategy
+```
+csharp
+// Redis Caching
+services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = configuration.GetConnectionString("Redis");
+    options.InstanceName = "Mango_";
+});
+
+// Caching Attributes
+[Cacheable(expiration: 3600)]
+[CacheRefresh(absoluteExpiration: 1800)]
+public async Task<ProductDto> GetProductAsync(Guid id)
+{
+    // Implementation
+}
+
+// In-Memory Caching for Configuration
+services.AddMemoryCache();
+```
+
+### 9.2 Asynchronous Processing
+- Non-blocking I/O for API calls
+- Background services for long-running tasks
+- Hangfire for job scheduling
+- Polling consumer for RabbitMQ
+
+### 9.3 Connection Pooling
+- DbContext pooling enabled
+- HttpClientFactory for HTTP clients
+- Circuit breaker pattern for external services
+
+---
+
+## 10. Project Structure (Clean Architecture per Service)
+
+```
+MangoMicroservice/
+├── src/
+│   ├── Mango.Web/                          # ASP.NET Core MVC Frontend
+│   │   ├── Controllers/
+│   │   ├── Views/
+│   │   ├── Models/
+│   │   ├── Services/
+│   │   └── wwwroot/
+│   ├── Mango.GatewaySolution/              # API Gateway with Ocelot
+│   │   ├── OcelotJson/
+│   │   └── Program.cs
+│   ├── Services/
+│   │   ├── Mango.Services.AuthAPI/          # JWT Auth, Registration, RBAC
+│   │   │   ├── Domain/                      # Entities, Value Objects, Interfaces
+│   │   │   ├── Application/                 # Commands, Queries, DTOs, Behaviors
+│   │   │   ├── Infrastructure/              # EF Core, Repositories, Services
+│   │   │   ├── Presentation/                # Controllers, Filters
+│   │   │   └── Data/                        # DbContext, Migrations
+│   │   ├── Mango.Services.ProductAPI/       # Product Catalog, CRUD, Categories
+│   │   │   ├── Domain/
+│   │   │   ├── Application/
+│   │   │   ├── Infrastructure/
+│   │   │   ├── Presentation/
+│   │   │   └── Data/
+│   │   ├── Mango.Services.ShoppingCartAPI/  # Cart Management, Redis
+│   │   │   ├── Domain/
+│   │   │   ├── Application/
+│   │   │   ├── Infrastructure/
+│   │   │   ├── Presentation/
+│   │   │   └── Data/
+│   │   ├── Mango.Services.OrderAPI/         # Order Processing, Payment
+│   │   │   ├── Domain/
+│   │   │   ├── Application/
+│   │   │   ├── Infrastructure/
+│   │   │   ├── Presentation/
+│   │   │   └── Data/
+│   │   ├── Mango.Services.EmailAPI/         # Transactional Emails
+│   │   │   ├── Domain/
+│   │   │   ├── Application/
+│   │   │   ├── Infrastructure/
+│   │   │   ├── Presentation/
+│   │   │   └── Data/
+│   │   ├── Mango.Services.CouponAPI/        # Discount/Promo Codes
+│   │   │   ├── Domain/
+│   │   │   ├── Application/
+│   │   │   ├── Infrastructure/
+│   │   │   ├── Presentation/
+│   │   │   └── Data/
+│   │   └── Mango.Services.RewardAPI/        # Loyalty Points Program
+│   │       ├── Domain/
+│   │       ├── Application/
+│   │       ├── Infrastructure/
+│   │       ├── Presentation/
+│   │       └── Data/
+│   └── Mango.MessageBus/                    # MassTransit Library
+│       ├── Abstractions/
+│       ├── Events/
+│       └── Configuration/
+├── tests/
+│   ├── Unit/
+│   ├── Integration/
+│   └── Contract/
+├── deploy/
+│   ├── docker-compose.yml
+│   └── kubernetes/
+├── speckit.constitution
+└── README.md
+```
+
+### Clean Architecture Layers
+```
+┌─────────────────────────────────────────────────────────┐
+│                 Presentation Layer                        │
+│         (API Controllers, DTOs, Filters, Validators)    │
+├─────────────────────────────────────────────────────────┤
+│                  Application Layer                        │
+│    (Commands, Queries, Handlers, DTOs, Mediator,        │
+│             Behaviors, Validation, Mapping)             │
+├─────────────────────────────────────────────────────────┤
+│                    Domain Layer                           │
+│  (Entities, Value Objects, Aggregates, Domain Services, │
+│       Events, Repository Interfaces, Enums)             │
+├─────────────────────────────────────────────────────────┤
+│                Infrastructure Layer                       │
+│  (EF Core, SQL Server, MassTransit, Redis, Logging,     │
+│    Authentication, External Services, Repositories)      │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 11. Microservice Specifications
+
+### 11.1 Mango.Web (ASP.NET Core MVC Frontend)
+- **Purpose**: Customer-facing e-commerce web application
+- **Technology**: ASP.NET Core MVC, Razor Pages
+- **Responsibilities**:
+  - User interface and experience
+  - Product browsing and search
+  - Shopping cart management
+  - Checkout flow
+  - User authentication UI
+  - Order history display
+- **API Dependencies**: GatewaySolution → All backend services
+- **Key Features**:
+  - Responsive design
+  - Session management
+  - Cookie-based authentication
+  - Client-side caching
+
+#### 11.1.1 Project Structure
+```
+Mango.Web/
+├── Controllers/
+│   ├── HomeController.cs
+│   ├── ProductController.cs
+│   ├── CartController.cs
+│   ├── CheckoutController.cs
+│   ├── OrderController.cs
+│   └── AccountController.cs
+├── Views/
+│   ├── Home/
+│   ├── Product/
+│   ├── Cart/
+│   ├── Checkout/
+│   ├── Order/
+│   └── Account/
+├── Models/
+│   ├── ViewModels/
+│   └── DTOs/
+├── Services/
+│   ├── IProductService.cs
+│   ├── ICartService.cs
+│   ├── IOrderService.cs
+│   └── IAuthService.cs
+├── wwwroot/
+│   ├── css/
+│   ├── js/
+│   └── images/
+└── Program.cs
+```
+
+#### 11.1.2 Key Views & Features
+- **Home Page**: Featured products, promotions, categories
+- **Product Catalog**: Grid/list view, filtering, sorting, pagination
+- **Product Details**: Images, specifications, reviews, add to cart
+- **Shopping Cart**: Item list, quantity adjust, coupon apply, totals
+- **Checkout**: Shipping address, payment method, order review
+- **User Account**: Profile, orders, addresses, rewards
+
+#### 11.1.3 Service Integration
+```csharp
+// Product Service Client
+public interface IProductService
+{
+    Task<ProductListDto> GetProductsAsync(ProductSearchRequest request);
+    Task<ProductDto> GetProductByIdAsync(Guid id);
+    Task<ProductDto> GetProductBySlugAsync(string slug);
+}
+
+// Cart Service Client
+public interface ICartService
+{
+    Task<CartDto> GetCartAsync();
+    Task<CartDto> AddToCartAsync(AddToCartRequest request);
+    Task<CartDto> UpdateQuantityAsync(Guid productId, int quantity);
+    Task RemoveFromCartAsync(Guid productId);
+    Task<CartDto> ApplyCouponAsync(string couponCode);
+}
+```
+
+#### 11.1.4 Authentication & Authorization
+- Cookie-based authentication (JWT from gateway)
+- Role-based UI rendering
+- Anti-forgery token validation
+- Secure password reset flow
+
+### 11.2 Mango.GatewaySolution (Ocelot API Gateway)
+- **Purpose**: Single entry point for all microservices
+- **Technology**: Ocelot, ASP.NET Core
+- **Responsibilities**:
+  - Request routing
+  - Request aggregation
+  - Authentication/Authorization
+  - Rate limiting
+  - Load balancing
+  - SSL termination
+- **Routes Configuration**:
+  ```
+  /api/auth/* → AuthAPI
+  /api/products/* → ProductAPI  
+  /api/cart/* → ShoppingCartAPI
+  /api/orders/* → OrderAPI
+  /api/emails/* → EmailAPI
+  /api/coupons/* → CouponAPI
+  /api/rewards/* → RewardAPI
+  ```
+- **Middleware**: JWT validation, claim transformation
+
+#### 11.2.1 Ocelot Configuration
+```json
+{
+  "Routes": [
+    {
+      "DownstreamPathTemplate": "/api/v1/products/{everything}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        { "Host": "product-api", "Port": 80 }
+      ],
+      "UpstreamPathTemplate": "/api/products/{everything}",
+      "UpstreamHttpMethod": ["GET", "POST", "PUT", "DELETE"],
+      "AuthenticationOptions": {
+        "AuthenticationProviderKey": "Bearer",
+        "AllowedScopes": []
+      },
+      "RouteClaimsRequirement": {
+        "role": "Admin"
+      }
+    }
+  ],
+  "GlobalConfiguration": {
+    "BaseUrl": "http://localhost:5000",
+    "RateLimitOptions": {
+      "EnableRateLimiting": true,
+      "Period": "1m",
+      "Limit": 100
+    }
+  }
+}
+```
+
+#### 11.2.2 Authentication Middleware
+```csharp
+// Custom JWT Middleware
+public class JwtMiddleware
+{
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        var token = context.Request.Headers["Authorization"]
+            .FirstOrDefault()?.Split(" ").Last();
+            
+        if (token != null)
+        {
+            var claims = _jwtService.ValidateToken(token);
+            var identity = new ClaimsIdentity(claims, "jwt");
+            context.User = new ClaimsPrincipal(identity);
+        }
+        
+        await next(context);
+    }
+}
+```
+
+#### 11.2.3 Rate Limiting
+```csharp
+// Rate Limiting Configuration
+services.AddOcelot()
+    .AddRateLimiting()
+    .AddRedisCacheHandle(RedisConnection);
+
+// Client-specific rate limits
+public class ClientRateLimitOptions
+{
+    public string ClientId { get; set; }
+    public int Limit { get; set; }
+    public string Period { get; set; }  // 1s, 1m, 1h, 1d
+}
+```
+
+#### 11.2.4 Service Discovery
+```csharp
+// Consul Service Discovery
+services.AddOcelot()
+    .AddConsul()
+    .AddServiceDiscovery();
+
+// Kubernetes DNS
+services.AddOcelot()
+    .AddKubernetesServiceDiscovery();
+```
+
+#### 11.2.5 Request Aggregation
+```csharp
+// Aggregating multiple services
+public class ProductsWithReviewsAggregation : IDefinedAggregator
+{
+    public async Task<DownstreamResponse> Aggregate(
+        List<DownstreamResponse> responses)
+    {
+        var productResponse = responses[0];
+        var reviewResponse = responses[1];
+        
+        var product = await productResponse.Content.ReadAsAsync<ProductDto>();
+        var reviews = await reviewResponse.Content.ReadAsAsync<List<ReviewDto>>();
+        
+        var result = new
+        {
+            product.Id,
+            product.Name,
+            product.Price,
+            Reviews = reviews,
+            AverageRating = reviews.Average(r => r.Rating)
+        };
+        
+        return new DownstreamResponse(
+            JsonSerializer.Serialize(result),
+            HttpStatusCode.OK,
+            new List<KeyValuePair<string, string>>(),
+            "application/json");
+    }
+}
+```
+
+### 11.3 Mango.Services.AuthAPI (Authentication & Authorization)
+- **Purpose**: User authentication and role-based access control
+- **Technology**: ASP.NET Core Web API, JWT, Identity
+- **Database**: SQL Server (IdentityDb)
+- **Responsibilities**:
+  - User registration
+  - User login with JWT tokens
+  - Token refresh mechanism
+  - Role management (SuperAdmin, Admin, Manager, Customer, Guest)
+  - Permission management
+  - Password hashing and verification
+- **API Endpoints**:
+  ```
+  POST /api/v1/auth/register
+  POST /api/v1/auth/login
+  POST /api/v1/auth/refresh
+  POST /api/v1/auth/revoke
+  GET  /api/v1/auth/me
+  PUT  /api/v1/auth/update-profile
+  POST /api/v1/auth/change-password
+  POST /api/v1/auth/forgot-password
+  POST /api/v1/auth/reset-password
+  GET  /api/v1/auth/confirm-email/{token}
+  GET  /api/v1/auth/roles
+  POST /api/v1/auth/roles
+  PUT  /api/v1/auth/roles/{id}
+  DELETE /api/v1/auth/roles/{id}
+  GET  /api/v1/auth/permissions
+  POST /api/v1/auth/permissions
+  GET  /api/v1/auth/users
+  GET  /api/v1/auth/users/{id}
+  PUT  /api/v1/auth/users/{id}/assign-role
+  DELETE /api/v1/auth/users/{id}
+  ```
+- **Security**:
+  - JWT with short-lived access tokens (15 min)
+  - Refresh tokens (7 days)
+  - Password hashing with BCrypt/Argon2
+  - Account lockout policies
+  - Rate limiting on auth endpoints
+  - Email verification required
+
+#### 11.3.1 JWT Token Structure
+```csharp
+// Access Token Claims
+public class JwtClaims
+{
+    public const string UserId = "userId";
+    public const string Email = "email";
+    public const string Role = "role";
+    public const string Permissions = "permissions";
+    public const string jti = "jti"; // Token ID
+    public const string iat = "iat"; // Issued At
+    public const string exp = "exp"; // Expiration
+}
+
+// Token Payload Example
+{
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "role": "Customer",
+  "permissions": ["products:read", "orders:read"],
+  "jti": "550e8400-e29b-41d4-a716-446655440001",
+  "iat": 1706000000,
+  "exp": 1706000900
+}
+```
+
+#### 11.3.2 Role-Based Access Control (RBAC)
+```csharp
+// Roles Hierarchy
+public enum Roles
+{
+    SuperAdmin = 1,    // All permissions
+    Admin = 2,         // Manage all resources
+    Manager = 3,      // Manage products, orders
+    Customer = 4,      // Own resources only
+    Guest = 5          // Read-only public resources
+}
+
+// Permission Categories
+public static class Permissions
+{
+    // Product Permissions
+    public const string ProductsRead = "products:read";
+    public const string ProductsWrite = "products:write";
+    public const string ProductsDelete = "products:delete";
+    
+    // Order Permissions
+    public const string OrdersRead = "orders:read";
+    public const string OrdersWrite = "orders:write";
+    public const string OrdersCancel = "orders:cancel";
+    
+    // User Permissions
+    public const string UsersRead = "users:read";
+    public const string UsersWrite = "users:write";
+    public const string UsersDelete = "users:delete";
+    
+    // Role Permissions
+    public const string RolesManage = "roles:manage";
+}
+
+// Authorization Policies
+services.AddAuthorization(options =>
+{
+    options.AddPolicy("RequireAdmin", policy =>
+        policy.RequireRole(Roles.Admin.ToString(), Roles.SuperAdmin.ToString()));
+    
+    options.AddPolicy("CanManageProducts", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.HasClaim(c => c.Type == "permission" && 
+                (c.Value == Permissions.ProductsWrite || 
+                 c.Value == Permissions.ProductsDelete))));
+    
+    options.AddPolicy("CanManageOrders", policy =>
+        policy.RequireAssertion(ctx =>
+            ctx.User.IsInRole(Roles.Admin.ToString()) ||
+            ctx.User.IsInRole(Roles.Manager.ToString()) ||
+            ctx.User.HasClaim(c => c.Type == "permission" && 
+                c.Value == Permissions.OrdersWrite)));
+});
+```
+
+#### 11.3.3 User Registration Flow
+```
+1. Client sends POST /api/v1/auth/register
+   {
+     "email": "user@example.com",
+     "password": "SecurePassword123!",
+     "confirmPassword": "SecurePassword123!",
+     "firstName": "John",
+     "lastName": "Doe"
+   }
+
+2. Server validates input (FluentValidation)
+   - Email format and uniqueness
+   - Password strength (min 8 chars, upper, lower, digit, special)
+   - Required fields
+
+3. Server creates user with pending email status
+   - Hash password with Argon2
+   - Generate email confirmation token
+   - Save to database
+
+4. Server sends confirmation email
+   - Include confirmation link with token
+
+5. User clicks confirmation link
+   - GET /api/v1/auth/confirm-email/{token}
+   - Email verified, account active
+
+6. Return success response
+```
+
+#### 11.3.4 Login Flow with Token Refresh
+```
+1. Client sends POST /api/v1/auth/login
+   {
+     "email": "user@example.com",
+     "password": "SecurePassword123!"
+   }
+
+2. Server validates credentials
+   - Check user exists and email verified
+   - Verify password hash
+   - Check account not locked out
+   - Record login attempt
+
+3. Server generates tokens
+   - Access Token: 15 min expiry
+   - Refresh Token: 7 days expiry (stored in DB)
+   - Both stored in HttpOnly cookies or returned in response
+
+4. Server returns tokens
+   {
+     "accessToken": "eyJ...",
+     "refreshToken": "550e8400-...",
+     "expiresIn": 900
+   }
+
+5. When access token expires:
+   a. Client sends POST /api/v1/auth/refresh
+      { "refreshToken": "550e8400-..." }
+   b. Server validates refresh token
+   c. Server issues new access token
+   d. Server rotates refresh token (invalidate old, issue new)
+```
+
+#### 11.3.5 Domain Entities
+```csharp
+// User Entity
+public class ApplicationUser : IdentityUser<Guid>
+{
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+    public bool EmailConfirmed { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+    public bool IsActive { get; set; }
+    public int AccessFailedCount { get; set; }
+    public DateTime? LockoutEnd { get; set; }
+    
+    public ICollection<ApplicationUserRole> UserRoles { get; set; }
+    public ICollection<RefreshToken> RefreshTokens { get; set; }
+}
+
+// Role Entity
+public class ApplicationRole : IdentityRole<Guid>
+{
+    public string Description { get; set; }
+    public int Level { get; set; }
+    public ICollection<ApplicationUserRole> UserRoles { get; set; }
+    public ICollection<ApplicationRoleClaim> RoleClaims { get; set; }
+}
+
+// Refresh Token Entity
+public class RefreshToken
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string Token { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string CreatedByIp { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string RevokedByIp { get; set; }
+    public bool IsActive => RevokedAt == null && ExpiresAt > DateTime.UtcNow;
+    
+    public ApplicationUser User { get; set; }
+}
+
+// User Session Entity
+public class UserSession
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public string DeviceId { get; set; }
+    public string DeviceName { get; set; }
+    public string IpAddress { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public bool IsActive { get; set; }
+}
+```
+
+#### 11.3.6 Events Published
+- **UserRegisteredEvent**: When new user completes registration
+- **UserEmailConfirmedEvent**: When user confirms email
+- **UserRoleChangedEvent**: When user's role is modified
+- **PasswordResetRequestedEvent**: When user requests password reset
+- **UserLoggedInEvent**: On successful login
+
+#### 11.3.7 Security Best Practices Implemented
+- Argon2id password hashing (memory-hard)
+- JWT access tokens with short expiry
+- Refresh token rotation on each use
+- Refresh token reuse detection (revoke all user tokens)
+- Account lockout after 5 failed attempts (15 min lockout)
+- Rate limiting: 5 requests/minute for login, 3 for registration
+- HTTPS only cookies
+- CSRF protection
+- XSS protection headers
+
+### 11.4 Mango.Services.ProductAPI (Product Catalog)
+- **Purpose**: Product catalog management and inventory
+- **Technology**: ASP.NET Core Web API, EF Core
+- **Database**: SQL Server (CatalogDb)
+- **Responsibilities**:
+  - Product CRUD operations
+  - Category management (hierarchical)
+  - Inventory tracking with reservations
+  - Product search and filtering
+  - Product recommendations
+- **API Endpoints**:
+  ```
+  GET    /api/v1/products
+  GET    /api/v1/products/{id}
+  GET    /api/v1/products/slug/{slug}
+  POST   /api/v1/products
+  PUT    /api/v1/products/{id}
+  DELETE /api/v1/products/{id}
+  GET    /api/v1/products/search?q={query}&category={cat}&minPrice={min}&maxPrice={max}
+  GET    /api/v1/products/featured?limit={limit}
+  GET    /api/v1/products/{id}/inventory
+  PUT    /api/v1/products/{id}/inventory
+  POST   /api/v1/products/{id}/reserve
+  POST   /api/v1/products/{id}/release
+  GET    /api/v1/categories
+  GET    /api/v1/categories/{id}
+  GET    /api/v1/categories/slug/{slug}
+  POST   /api/v1/categories
+  PUT    /api/v1/categories/{id}
+  DELETE /api/v1/categories/{id}
+  GET    /api/v1/categories/{id}/products
+  GET    /api/v1/brands
+  POST   /api/v1/brands
+  ```
+- **Domain Entities**: Product, Category, ProductImage, Inventory, Brand
+- **Events Published**: ProductCreatedEvent, ProductUpdatedEvent, ProductDeletedEvent, InventoryUpdatedEvent
+- **Events Consumed**: OrderCreatedEvent, OrderCancelledEvent
+
+#### 11.4.1 Product Entity & Aggregate
+```csharp
+// Product Aggregate Root
+public class Product
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string Slug { get; set; }  // URL-friendly: product-name
+    public string Description { get; set; }
+    public string ShortDescription { get; set; }
+    public decimal Price { get; set; }
+    public decimal? SalePrice { get; set; }
+    public decimal CostPrice { get; set; }
+    public string Sku { get; set; }  // Stock Keeping Unit
+    public string Barcode { get; set; }
+    
+    // Status
+    public ProductStatus Status { get; set; }
+    public bool IsFeatured { get; set; }
+    public bool IsFreeShipping { get; set; }
+    
+    // Category & Brand
+    public Guid CategoryId { get; set; }
+    public Guid? BrandId { get; set; }
+    
+    // Inventory
+    public int StockQuantity { get; set; }
+    public int ReservedQuantity { get; set; }
+    public int ReorderLevel { get; set; }
+    public int ReorderQuantity { get; set; }
+    public bool AllowBackOrder { get; set; }
+    
+    // Shipping
+    public decimal Weight { get; set; }
+    public decimal Length { get; set; }
+    public decimal Width { get; set; }
+    public decimal Height { get; set; }
+    
+    // SEO
+    public string MetaTitle { get; set; }
+    public string MetaDescription { get; set; }
+    public string MetaKeywords { get; set; }
+    
+    // Timestamps
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public DateTime? PublishedAt { get; set; }
+    
+    // Navigation
+    public Category Category { get; set; }
+    public Brand Brand { get; set; }
+    public ICollection<ProductImage> Images { get; set; }
+    public ICollection<ProductSpecification> Specifications { get; set; }
+    public ICollection<ProductReview> Reviews { get; set; }
+    
+    // Computed
+    public int AvailableQuantity => StockQuantity - ReservedQuantity;
+    public decimal CurrentPrice => SalePrice ?? Price;
+    public bool IsInStock => StockQuantity > 0 || AllowBackOrder;
+    public bool IsLowStock => StockQuantity <= ReorderLevel;
+}
+
+public enum ProductStatus
+{
+    Draft = 0,
+    Published = 1,
+    Archived = 2,
+    Deleted = 3
+}
+```
+
+#### 11.4.2 Inventory Management
+```csharp
+// Inventory Service Interface
+public interface IInventoryService
+{
+    Task<InventoryResult> GetInventoryAsync(Guid productId);
+    Task<InventoryResult> UpdateQuantityAsync(Guid productId, int quantity, string reason);
+    Task<ReservationResult> ReserveInventoryAsync(Guid productId, int quantity, Guid orderId);
+    Task<bool> ReleaseInventoryAsync(Guid productId, int quantity, Guid orderId);
+    Task<bool> CommitReservationAsync(Guid productId, Guid orderId);
+    Task<List<LowStockProduct>> GetLowStockProductsAsync();
+}
+
+// Inventory Reservation (for Order Processing)
+public class InventoryReservation
+{
+    public Guid Id { get; set; }
+    public Guid ProductId { get; set; }
+    public Guid OrderId { get; set; }
+    public int Quantity { get; set; }
+    public ReservationStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }  // 15 minutes auto-expire
+    public DateTime? CommittedAt { get; set; }
+    public DateTime? ReleasedAt { get; set; }
+}
+
+public enum ReservationStatus
+{
+    Pending = 1,
+    Reserved = 2,
+    Committed = 3,
+    Released = 4,
+    Expired = 5
+}
+
+// Inventory Update Flow
+public class InventoryService : IInventoryService
+{
+    public async Task<ReservationResult> ReserveInventoryAsync(
+        Guid productId, int quantity, Guid orderId)
+    {
+        var product = await _productRepository.GetByIdAsync(productId);
+        
+        // Check availability
+        if (product.AvailableQuantity < quantity)
+            return ReservationResult.InsufficientStock();
+            
+        // Check existing reservation
+        var existing = await _reservationRepository
+            .GetActiveReservationAsync(productId, orderId);
+            
+        if (existing != null)
+        {
+            // Update quantity if different
+            var difference = quantity - existing.Quantity;
+            if (difference != 0)
+            {
+                if (product.AvailableQuantity + existing.Quantity < quantity)
+                    return ReservationResult.InsufficientStock();
+                    
+                existing.Quantity = quantity;
+                existing.ExpiresAt = DateTime.UtcNow.AddMinutes(15);
+            }
+        }
+        else
+        {
+            // Create new reservation
+            var reservation = new InventoryReservation
+            {
+                ProductId = productId,
+                OrderId = orderId,
+                Quantity = quantity,
+                Status = ReservationStatus.Pending,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            };
+            await _reservationRepository.CreateAsync(reservation);
+        }
+        
+        // Update product reserved quantity
+        product.ReservedQuantity += quantity;
+        await _productRepository.UpdateAsync(product);
+        
+        // Publish event
+        await _eventPublisher.PublishAsync(new InventoryReservedEvent(
+            productId, orderId, quantity));
+            
+        return ReservationResult.Success();
+    }
+    
+    public async Task<bool> CommitReservationAsync(Guid productId, Guid orderId)
+    {
+        var reservation = await _reservationRepository
+            .GetActiveReservationAsync(productId, orderId);
+            
+        if (reservation == null) return false;
+        
+        var product = await _productRepository.GetByIdAsync(productId);
+        
+        // Deduct from stock
+        product.StockQuantity -= reservation.Quantity;
+        product.ReservedQuantity -= reservation.Quantity;
+        
+        reservation.Status = ReservationStatus.Committed;
+        reservation.CommittedAt = DateTime.UtcNow;
+        
+        await _productRepository.UpdateAsync(product);
+        await _reservationRepository.UpdateAsync(reservation);
+        
+        // Check reorder level
+        if (product.IsLowStock)
+            await _eventPublisher.PublishAsync(new LowStockAlertEvent(
+                productId, product.StockQuantity, product.ReorderLevel));
+            
+        return true;
+    }
+}
+```
+
+#### 11.4.3 Category Management (Hierarchical)
+```csharp
+// Category Entity (Hierarchical)
+public class Category
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string Slug { get; set; }
+    public string Description { get; set; }
+    public Guid? ParentId { get; set; }
+    public int DisplayOrder { get; set; }
+    public bool IsActive { get; set; }
+    public string ImageUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    // Navigation
+    public Category Parent { get; set; }
+    public ICollection<Category> Children { get; set; }
+    public ICollection<Product> Products { get; set; }
+    
+    // Computed
+    public int ProductCount { get; set; }
+    public string Breadcrumb { get; set; }  // Parent > Child > GrandChild
+}
+
+// Brand Entity
+public class Brand
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string Slug { get; set; }
+    public string Description { get; set; }
+    public string LogoUrl { get; set; }
+    public string Website { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    
+    public ICollection<Product> Products { get; set; }
+}
+```
+
+#### 11.4.4 Product Search & Filtering
+```csharp
+// Search Request/Response
+public class ProductSearchRequest
+{
+    public string Query { get; set; }
+    public Guid? CategoryId { get; set; }
+    public Guid? BrandId { get; set; }
+    public decimal? MinPrice { get; set; }
+    public decimal? MaxPrice { get; set; }
+    public List<Guid> CategoryIds { get; set; }
+    public List<string> Tags { get; set; }
+    public ProductStatus? Status { get; set; }
+    public bool? IsFeatured { get; set; }
+    public bool? InStockOnly { get; set; }
+    public string SortBy { get; set; }  // price_asc, price_desc, newest, popularity
+    public int PageNumber { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+public class ProductSearchResponse
+{
+    public List<ProductSummaryDto> Products { get; set; }
+    public int TotalCount { get; set; }
+    public int PageNumber { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages { get; set; }
+    public bool HasPrevious { get; set; }
+    public bool HasNext { get; set; }
+    public List<FacetResult> CategoryFacets { get; set; }
+    public List<FacetResult> BrandFacets { get; set; }
+    public PriceRangeFacet PriceRange { get; set; }
+}
+
+// Search Implementation with EF Core
+public class ProductSearchService
+{
+    public async Task<ProductSearchResponse> SearchAsync(ProductSearchRequest request)
+    {
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Brand)
+            .Include(p => p.Images.Where(i => i.IsDefault))
+            .Where(p => p.Status == ProductStatus.Published);
+        
+        // Apply filters
+        if (!string.IsNullOrEmpty(request.Query))
+        {
+            var searchTerm = request.Query.ToLower();
+            query = query.Where(p => 
+                p.Name.Contains(searchTerm) ||
+                p.Description.Contains(searchTerm) ||
+                p.Sku.Contains(searchTerm));
+        }
+        
+        if (request.CategoryId.HasValue)
+        {
+            var categoryIds = await _categoryRepository
+                .GetAllChildIdsAsync(request.CategoryId.Value);
+            categoryIds.Add(request.CategoryId.Value);
+            query = query.Where(p => categoryIds.Contains(p.CategoryId));
+        }
+        
+        if (request.MinPrice.HasValue)
+            query = query.Where(p => p.CurrentPrice >= request.MinPrice.Value);
+            
+        if (request.MaxPrice.HasValue)
+            query = query.Where(p => p.CurrentPrice <= request.MaxPrice.Value);
+            
+        if (request.InStockOnly == true)
+            query = query.Where(p => p.IsInStock);
+            
+        // Sorting
+        query = request.SortBy switch
+        {
+            "price_asc" => query.OrderBy(p => p.CurrentPrice),
+            "price_desc" => query.OrderByDescending(p => p.CurrentPrice),
+            "newest" => query.OrderByDescending(p => p.PublishedAt),
+            "popularity" => query.OrderByDescending(p => p.ViewCount),
+            _ => query.OrderBy(p => p.DisplayOrder)
+        };
+        
+        // Pagination
+        var totalCount = await query.CountAsync();
+        var products = await query
+            .Skip((request.PageNumber - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .Select(p => new ProductSummaryDto { /* mapping */ })
+            .ToListAsync();
+            
+        return new ProductSearchResponse
+        {
+            Products = products,
+            TotalCount = totalCount,
+            PageNumber = request.PageNumber,
+            PageSize = request.PageSize,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize)
+        };
+    }
+}
+```
+
+#### 11.4.5 Events Published/Consumed
+```csharp
+// Events Published
+public record ProductCreatedEvent(Guid ProductId, string Name, string Slug, decimal Price, decimal? SalePrice, string CategoryName);
+public record ProductUpdatedEvent(Guid ProductId, string Name, decimal Price, bool IsFeatured, ProductStatus Status);
+public record ProductDeletedEvent(Guid ProductId, string Name);
+public record InventoryUpdatedEvent(Guid ProductId, int NewQuantity, int ReservedQuantity, string Reason);
+public record InventoryReservedEvent(Guid ProductId, Guid OrderId, int Quantity);
+public record LowStockAlertEvent(Guid ProductId, int CurrentStock, int ReorderLevel);
+
+// Events Consumed
+public record OrderCreatedEvent(Guid OrderId, List<OrderItemDto> Items);  // Commits inventory
+public record OrderCancelledEvent(Guid OrderId, List<OrderItemDto> Items);  // Restores inventory
+```
+
+#### 11.4.6 Product Recommendations
+```csharp
+public interface IRecommendationService
+{
+    Task<List<ProductSummaryDto>> GetRelatedProductsAsync(Guid productId, int count = 4);
+    Task<List<ProductSummaryDto>> GetFeaturedProductsAsync(int count = 10);
+    Task<List<ProductSummaryDto>> GetRecommendedForUserAsync(Guid userId, int count = 10);
+    Task<List<ProductSummaryDto>> GetRecentlyViewedAsync(Guid userId, int count = 10);
+}
+
+public class RecommendationService : IRecommendationService
+{
+    public async Task<List<ProductSummaryDto>> GetRelatedProductsAsync(Guid productId, int count = 4)
+    {
+        var product = await _productRepository.GetByIdAsync(productId);
+        
+        var related = await _context.Products
+            .Where(p => p.CategoryId == product.CategoryId && 
+                       p.Id != productId &&
+                       p.Status == ProductStatus.Published)
+            .OrderByDescending(p => p.IsFeatured)
+            .ThenByDescending(p => p.ViewCount)
+            .Take(count)
+            .Select(MapToSummary)
+            .ToListAsync();
+            
+        return related;
+    }
+    
+    public async Task<List<ProductSummaryDto>> GetRecommendedForUserAsync(Guid userId, int count = 10)
+    {
+        var userOrders = await _orderRepository.GetByUserIdAsync(userId);
+        var purchasedCategoryIds = await _context.OrderItems
+            .Where(oi => userOrders.Select(o => o.Id).Contains(oi.OrderId))
+            .Select(oi => oi.Product.CategoryId)
+            .Distinct()
+            .ToListAsync();
+            
+        var purchasedProductIds = await _context.OrderItems
+            .Where(oi => userOrders.Select(o => o.Id).Contains(oi.OrderId))
+            .Select(oi => oi.ProductId)
+            .Distinct()
+            .ToListAsync();
+            
+        var recommendations = await _context.Products
+            .Where(p => purchasedCategoryIds.Contains(p.CategoryId) &&
+                       !purchasedProductIds.Contains(p.Id) &&
+                       p.Status == ProductStatus.Published &&
+                       p.IsInStock)
+            .OrderByDescending(p => p.IsFeatured)
+            .ThenByDescending(p => p.ViewCount)
+            .Take(count)
+            .Select(MapToSummary)
+            .ToListAsync();
+            
+        return recommendations;
+    }
+}
+
+### 11.5 Mango.Services.ShoppingCartAPI (Shopping Cart)
+- **Purpose**: Shopping cart management and persistence
+- **Technology**: ASP.NET Core Web API, Redis, EF Core
+- **Database**: SQL Server (CartDb), Redis (caching)
+- **Responsibilities**:
+  - Add/Remove items from cart
+  - Update item quantities
+  - Apply coupons to cart
+  - Calculate cart total with real-time pricing
+  - Cart persistence across sessions
+  - Guest cart management
+- **API Endpoints**:
+  ```
+  GET    /api/v1/cart
+  POST   /api/v1/cart/items
+  PUT    /api/v1/cart/items/{productId}
+  DELETE /api/v1/cart/items/{productId}
+  POST   /api/v1/cart/apply-coupon
+  DELETE /api/v1/cart/coupon
+  POST   /api/v1/cart/checkout
+  DELETE /api/v1/cart
+  GET    /api/v1/cart/count
+  POST   /api/v1/cart/merge
+  ```
+- **Events Published**: CartUpdatedEvent, CartCheckoutInitiatedEvent, CartItemRemovedEvent
+- **Events Consumed**: ProductUpdatedEvent (price/inventory changes)
+
+#### 11.5.1 Cart Architecture (Redis + SQL Server)
+```csharp
+// Cart Entity - Redis-backed with SQL persistence
+public class ShoppingCart
+{
+    public string CartId { get; set; }  // UserId or GuestId
+    public Guid? UserId { get; set; }    // Null for guest carts
+    public string GuestId { get; set; }  // Cookie-based for guests
+    public List<CartItem> Items { get; set; }
+    public string CouponCode { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public CartStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    // Computed
+    public int ItemCount => Items.Sum(i => i.Quantity);
+    public decimal SubTotal => Items.Sum(i => i.TotalPrice);
+    public decimal Total => SubTotal - DiscountAmount;
+}
+
+public class CartItem
+{
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; }
+    public string ProductSku { get; set; }
+    public string ImageUrl { get; set; }
+    public decimal UnitPrice { get; set; }
+    public int Quantity { get; set; }
+    public decimal TotalPrice => UnitPrice * Quantity;
+    public bool IsAvailable { get; set; }
+    public string UnavailableReason { get; set; }
+}
+
+public enum CartStatus
+{
+    Active = 1,
+    CheckoutInProgress = 2,
+    ConvertedToOrder = 3,
+    Abandoned = 4,
+    Merged = 5
+}
+
+// Redis Configuration
+public class RedisCartRepository : ICartRepository
+{
+    private readonly IConnectionMultiplexer _redis;
+    private readonly IDistributedCache _cache;
+    private readonly TimeSpan _cartExpiration = TimeSpan.FromDays(30);
+    
+    private string GetKey(string cartId) => $"cart:{cartId}";
+    
+    public async Task<ShoppingCart> GetCartAsync(string cartId)
+    {
+        var key = GetKey(cartId);
+        var cached = await _cache.GetAsync(key);
+        
+        if (cached != null)
+        {
+            return JsonSerializer.Deserialize<ShoppingCart>(cached);
+        }
+        
+        // Fallback to DB for persistent storage
+        var cart = await _dbContext.Carts
+            .Include(c => c.Items)
+            .FirstOrDefaultAsync(c => c.CartId == cartId);
+            
+        if (cart != null)
+        {
+            await SetCartAsync(cartId, cart);  // Cache it
+        }
+        
+        return cart ?? new ShoppingCart { CartId = cartId };
+    }
+    
+    public async Task SetCartAsync(string cartId, ShoppingCart cart)
+    {
+        var key = GetKey(cartId);
+        var serialized = JsonSerializer.Serialize(cart);
+        
+        // Redis cache with sliding expiration
+        await _cache.SetAsync(key, 
+            Encoding.UTF8.GetBytes(serialized),
+            new DistributedCacheEntryOptions
+            {
+                SlidingExpiration = _cartExpiration,
+                AbsoluteExpiration = DateTimeOffset.Now.AddDays(30)
+            });
+    }
+    
+    public async Task RemoveCartAsync(string cartId)
+    {
+        var key = GetKey(cartId);
+        await _cache.RemoveAsync(key);
+        await _dbContext.Carts.DeleteAsync(c => c.CartId == cartId);
+    }
+}
+```
+
+#### 11.5.2 Cart Service Implementation
+```csharp
+public class CartService : ICartService
+{
+    private readonly ICartRepository _cartRepository;
+    private readonly IProductServiceClient _productClient;
+    private readonly ICouponServiceClient _couponClient;
+    private readonly IEventPublisher _eventPublisher;
+    
+    public async Task<CartDto> AddToCartAsync(string cartId, AddToCartRequest request)
+    {
+        var cart = await _cartRepository.GetCartAsync(cartId);
+        
+        // Get product details from ProductAPI
+        var product = await _productClient.GetProductAsync(request.ProductId);
+        if (product == null)
+            throw new ProductNotFoundException(request.ProductId);
+            
+        // Check inventory
+        if (!product.IsInStock || product.AvailableQuantity < request.Quantity)
+            throw new InsufficientStockException(product.Name);
+            
+        var existingItem = cart.Items.FirstOrDefault(i => i.ProductId == product.Id);
+        
+        if (existingItem != null)
+        {
+            // Update quantity
+            var newQuantity = existingItem.Quantity + request.Quantity;
+            if (newQuantity > product.AvailableQuantity)
+                throw new InsufficientStockException(product.Name);
+                
+            existingItem.Quantity = newQuantity;
+            existingItem.UnitPrice = product.CurrentPrice;
+        }
+        else
+        {
+            // Add new item
+            cart.Items.Add(new CartItem
+            {
+                ProductId = product.Id,
+                ProductName = product.Name,
+                ProductSku = product.Sku,
+                ImageUrl = product.ImageUrl,
+                UnitPrice = product.CurrentPrice,
+                Quantity = request.Quantity,
+                IsAvailable = true
+            });
+        }
+        
+        cart.UpdatedAt = DateTime.UtcNow;
+        await _cartRepository.SetCartAsync(cartId, cart);
+        
+        // Publish event
+        await _eventPublisher.PublishAsync(new CartUpdatedEvent(
+            cartId, cart.UserId, cart.ItemCount, cart.Total));
+            
+        return MapToDto(cart);
+    }
+    
+    public async Task<CartDto> UpdateQuantityAsync(string cartId, Guid productId, int quantity)
+    {
+        var cart = await _cartRepository.GetCartAsync(cartId);
+        var item = cart.Items.FirstOrDefault(i => i.ProductId == productId);
+        
+        if (item == null)
+            throw new CartItemNotFoundException(productId);
+            
+        if (quantity <= 0)
+        {
+            return await RemoveFromCartAsync(cartId, productId);
+        }
+        
+        // Verify stock
+        var product = await _productClient.GetProductAsync(productId);
+        if (quantity > product.AvailableQuantity)
+            throw new InsufficientStockException(product.Name);
+            
+        item.Quantity = quantity;
+        item.UnitPrice = product.CurrentPrice;
+        
+        cart.UpdatedAt = DateTime.UtcNow;
+        await _cartRepository.SetCartAsync(cartId, cart);
+        
+        return MapToDto(cart);
+    }
+    
+    public async Task<CartDto> ApplyCouponAsync(string cartId, string couponCode)
+    {
+        var cart = await _cartRepository.GetCartAsync(cartId);
+        
+        // Validate coupon
+        var validation = await _couponClient.ValidateCouponAsync(
+            couponCode, cart.SubTotal);
+            
+        if (!validation.IsValid)
+            throw new InvalidCouponException(validation.ErrorMessage);
+            
+        cart.CouponCode = couponCode;
+        cart.DiscountAmount = validation.DiscountAmount;
+        
+        cart.UpdatedAt = DateTime.UtcNow;
+        await _cartRepository.SetCartAsync(cartId, cart);
+        
+        return MapToDto(cart);
+    }
+    
+    public async Task<CheckoutResult> CheckoutAsync(string cartId, CheckoutRequest request)
+    {
+        var cart = await _cartRepository.GetCartAsync(cartId);
+        
+        // Validate cart
+        if (!cart.Items.Any())
+            throw new EmptyCartException();
+            
+        // Verify all items still available
+        foreach (var item in cart.Items)
+        {
+            var product = await _productClient.GetProductAsync(item.ProductId);
+            if (!product.IsInStock || product.AvailableQuantity < item.Quantity)
+            {
+                item.IsAvailable = false;
+                item.UnavailableReason = "Out of stock";
+            }
+        }
+        
+        var unavailableItems = cart.Items.Where(i => !i.IsAvailable).ToList();
+        if (unavailableItems.Any())
+        {
+            await _cartRepository.SetCartAsync(cartId, cart);
+            throw new CartContainsUnavailableItemsException(unavailableItems);
+        }
+        
+        // Mark cart as checkout in progress
+        cart.Status = CartStatus.CheckoutInProgress;
+        await _cartRepository.SetCartAsync(cartId, cart);
+        
+        // Publish checkout initiated event
+        await _eventPublisher.PublishAsync(new CartCheckoutInitiatedEvent(
+            cartId, 
+            cart.UserId, 
+            cart.Items.Select(i => new CartItemDto
+            {
+                ProductId = i.ProductId,
+                Quantity = i.Quantity,
+                UnitPrice = i.UnitPrice
+            }).ToList(),
+            cart.CouponCode));
+            
+        return new CheckoutResult
+        {
+            CartId = cartId,
+            CartStatus = cart.Status,
+            RedirectToPayment = true
+        };
+    }
+}
+```
+
+#### 11.5.3 Guest Cart Management
+```csharp
+// Guest Cart Handler
+public class GuestCartMiddleware
+{
+    private const string GuestCartCookieName = "guest_cart_id";
+    private const int GuestCartCookieDays = 30;
+    
+    public async Task<string> GetOrCreateGuestCartId(HttpContext context)
+    {
+        // Check for existing guest cart cookie
+        if (context.Request.Cookies.TryGetValue(GuestCartCookieName, out var guestId))
+        {
+            return guestId;
+        }
+        
+        // Create new guest cart ID
+        guestId = Guid.NewGuid().ToString();
+        
+        context.Response.Cookies.Append(GuestCartCookieName, guestId, new CookieOptions
+        {
+            Expires = DateTimeOffset.Now.AddDays(GuestCartCookieDays),
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = true
+        });
+        
+        return guestId;
+    }
+    
+    public async Task<CartDto> MergeGuestCartToUserCart(
+        string guestCartId, Guid userId)
+    {
+        var guestCart = await _cartRepository.GetCartAsync(guestCartId);
+        var userCart = await _cartRepository.GetCartAsync(userId.ToString());
+        
+        // Merge items (prefer user cart quantities)
+        foreach (var guestItem in guestCart.Items)
+        {
+            var existingItem = userCart.Items
+                .FirstOrDefault(i => i.ProductId == guestItem.ProductId);
+                
+            if (existingItem != null)
+            {
+                existingItem.Quantity = Math.Max(existingItem.Quantity, guestItem.Quantity);
+            }
+            else
+            {
+                userCart.Items.Add(guestItem);
+            }
+        }
+        
+        // Apply coupon if user cart doesn't have one
+        if (string.IsNullOrEmpty(userCart.CouponCode) && 
+            !string.IsNullOrEmpty(guestCart.CouponCode))
+        {
+            userCart.CouponCode = guestCart.CouponCode;
+        }
+        
+        userCart.UserId = userId;
+        userCart.Status = CartStatus.Merged;
+        userCart.UpdatedAt = DateTime.UtcNow;
+        
+        await _cartRepository.SetCartAsync(userId.ToString(), userCart);
+        await _cartRepository.RemoveCartAsync(guestCartId);
+        
+        return MapToDto(userCart);
+    }
+}
+```
+
+#### 11.5.4 Cart Caching Strategy
+```csharp
+// Redis Caching Strategy
+public class CartCacheStrategy
+{
+    // Cache hit: Return from Redis immediately
+    // Cache miss: Fetch from ProductAPI, cache in Redis
+    // Write-through: Update Redis and publish event on changes
+    
+    // Key patterns:
+    // cart:{userId} - Authenticated user cart
+    // cart:guest:{guestId} - Guest cart
+    // cart:temp:{sessionId} - Temporary session cart
+    
+    // Invalidation events:
+    // - Product price changed → Update cart item prices
+    // - Product discontinued → Mark item unavailable
+    // - Inventory low → Update item availability
+    // - Cart checkout → Delete cart
+    
+    public async Task HandleProductUpdate(ProductUpdatedEvent event)
+    {
+        if (event.PropertyChanged.Contains("Price") ||
+            event.PropertyChanged.Contains("IsInStock"))
+        {
+            // Update all carts containing this product
+            var affectedCarts = await _cartRepository
+                .GetCartsContainingProductAsync(event.ProductId);
+                
+            foreach (var cart in affectedCarts)
+            {
+                var item = cart.Items.First(i => i.ProductId == event.ProductId);
+                item.UnitPrice = event.NewPrice;
+                item.IsAvailable = event.IsInStock;
+                
+                await _cartRepository.SetCartAsync(cart.CartId, cart);
+                
+                await _eventPublisher.PublishAsync(new CartUpdatedEvent(
+                    cart.CartId, cart.UserId, cart.ItemCount, cart.Total));
+            }
+        }
+    }
+}
+```
+
+#### 11.5.5 Events Published/Consumed
+```csharp
+// Events Published
+public record CartUpdatedEvent(
+    string CartId, 
+    Guid? UserId, 
+    int ItemCount, 
+    decimal TotalAmount);
+
+public record CartCheckoutInitiatedEvent(
+    string CartId, 
+    Guid? UserId, 
+    List<CartItemDto> Items,
+    string CouponCode);
+
+public record CartItemRemovedEvent(
+    string CartId, 
+    Guid ProductId, 
+    int Quantity);
+
+// Events Consumed
+public record ProductUpdatedEvent(
+    Guid ProductId, 
+    string Name, 
+    decimal NewPrice, 
+    bool IsInStock, 
+    int AvailableQuantity,
+    List<string> PropertyChanged);
+
+### 11.6 Mango.Services.OrderAPI (Order Processing)
+- **Purpose**: Order management and payment integration
+- **Technology**: ASP.NET Core Web API, EF Core
+- **Database**: SQL Server (OrderDb)
+- **Responsibilities**:
+  - Order creation from cart
+  - Order status tracking
+  - Payment processing integration
+  - Order history
+  - Order cancellation
+  - Refund processing
+- **API Endpoints**:
+  ```
+  GET    /api/v1/orders
+  GET    /api/v1/orders/{id}
+  POST   /api/v1/orders
+  PUT    /api/v1/orders/{id}/status
+  POST   /api/v1/orders/{id}/cancel
+  GET    /api/v1/orders/user/{userId}
+  GET    /api/v1/orders/{id}/track
+  POST   /api/v1/orders/{id}/refund
+  GET    /api/v1/orders/{id}/invoice
+  GET    /api/v1/orders/statistics
+  PUT    /api/v1/orders/{id}/shipping
+  ```
+- **Domain Entities**: Order, OrderItem, Payment, ShippingAddress
+- **Events Published**: OrderCreatedEvent, OrderStatusChangedEvent, PaymentProcessedEvent
+- **Events Consumed**: CartCheckoutInitiatedEvent, PaymentProcessedEvent
+
+#### 11.6.1 Order Status State Machine
+```csharp
+// Order Status States
+public enum OrderStatus
+{
+    Pending = 1,           // Order created, awaiting payment
+    PaymentConfirmed = 2,  // Payment verified
+    Processing = 3,        // Preparing for shipment
+    Shipped = 4,           // In transit
+    Delivered = 5,         // Delivered to customer
+    Cancelled = 6,        // Order cancelled
+    Refunded = 7,         // Payment refunded
+    Failed = 8             // Payment failed
+}
+
+// State Transitions (Valid)
+public static class OrderStatusTransitions
+{
+    public static readonly Dictionary<OrderStatus, OrderStatus[]> ValidTransitions = new()
+    {
+        { OrderStatus.Pending, new[] { OrderStatus.PaymentConfirmed, OrderStatus.Cancelled, OrderStatus.Failed } },
+        { OrderStatus.PaymentConfirmed, new[] { OrderStatus.Processing, OrderStatus.Cancelled } },
+        { OrderStatus.Processing, new[] { OrderStatus.Shipped, OrderStatus.Cancelled } },
+        { OrderStatus.Shipped, new[] { OrderStatus.Delivered } },
+        { OrderStatus.Delivered, new[] { OrderStatus.Refunded } },
+        { OrderStatus.Cancelled, new[] { OrderStatus.Refunded } },
+        { OrderStatus.Failed, new OrderStatus[] { } },
+        { OrderStatus.Refunded, new OrderStatus[] { } }
+    };
+    
+    public static bool CanTransition(OrderStatus from, OrderStatus to)
+    {
+        return ValidTransitions.ContainsKey(from) && 
+               ValidTransitions[from].Contains(to);
+    }
+}
+```
+
+#### 11.6.2 Order Creation Flow (SAGA Pattern)
+```
+1. Client POST /api/v1/orders
+   {
+     "cartId": "550e8400-e29b-41d4-a716-446655440000",
+     "paymentMethodId": "pay_abc123",
+     "shippingAddress": {
+       "street": "123 Main St",
+       "city": "Taipei",
+       "state": "TP",
+       "postalCode": "100",
+       "country": "TW"
+     }
+   }
+
+2. Order Service starts SAGA:
+   
+   Step 1: Validate Cart
+   - Get cart from ShoppingCartAPI
+   - Verify items available in inventory
+   - Validate coupon still valid
+   
+   Step 2: Create Order Record
+   - Create order with Pending status
+   - Create order items from cart
+   - Calculate totals (subtotal, tax, shipping, discount)
+   
+   Step 3: Reserve Inventory
+   - Send ProductUpdatedEvent (inventory reservation)
+   - Wait for confirmation
+   
+   Step 4: Process Payment
+   - Send to payment gateway
+   - Create Payment record
+   - Update order to PaymentConfirmed
+   
+   Step 5: Publish OrderCreatedEvent
+   - Notify EmailAPI to send confirmation
+   - Notify RewardAPI to calculate points
+   - Notify CouponAPI to mark coupon used
+   
+   Step 6: Clear Cart
+   - Send CartClearedEvent to ShoppingCartAPI
+
+3. Compensating Actions (if failure):
+   - Release inventory reservation
+   - Process refund if payment succeeded
+   - Publish OrderFailedEvent
+```
+
+#### 11.6.3 Payment Integration
+```csharp
+// Payment Entity
+public class Payment
+{
+    public Guid Id { get; set; }
+    public Guid OrderId { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "USD";
+    public PaymentMethod Method { get; set; }
+    public PaymentStatus Status { get; set; }
+    public string TransactionId { get; set; }
+    public string Provider { get; set; }  // Stripe, PayPal, etc.
+    public string ProviderPaymentId { get; set; }
+    public string FailureReason { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ProcessedAt { get; set; }
+    public int RetryCount { get; set; }
+    
+    public Order Order { get; set; }
+}
+
+public enum PaymentMethod
+{
+    CreditCard = 1,
+    DebitCard = 2,
+    PayPal = 3,
+    BankTransfer = 4,
+    Points = 5  // Loyalty points
+}
+
+public enum PaymentStatus
+{
+    Pending = 1,
+    Processing = 2,
+    Succeeded = 3,
+    Failed = 4,
+    Cancelled = 5,
+    Refunded = 6,
+    PartiallyRefunded = 7
+}
+
+// Payment Service Interface
+public interface IPaymentService
+{
+    Task<PaymentResult> ProcessPaymentAsync(PaymentRequest request);
+    Task<PaymentResult> RefundPaymentAsync(Guid paymentId, decimal amount);
+    Task<PaymentStatus> GetPaymentStatusAsync(string transactionId);
+}
+```
+
+#### 11.6.4 Domain Entities
+```csharp
+// Order Aggregate Root
+public class Order
+{
+    public Guid Id { get; set; }
+    public string OrderNumber { get; set; }  // Format: ORD-YYYYMMDD-XXXXX
+    public Guid UserId { get; set; }
+    public OrderStatus Status { get; set; }
+    public decimal SubTotal { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal ShippingAmount { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public string Currency { get; set; } = "USD";
+    
+    // Shipping
+    public ShippingAddress ShippingAddress { get; set; }
+    public string TrackingNumber { get; set; }
+    public string ShippingCarrier { get; set; }
+    public DateTime? ShippedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    
+    // Metadata
+    public string CouponCode { get; set; }
+    public Guid? RewardPointsUsed { get; set; }
+    public int PointsEarned { get; set; }
+    public string Notes { get; set; }
+    public string CancellationReason { get; set; }
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    // Navigation
+    public ICollection<OrderItem> Items { get; set; }
+    public Payment Payment { get; set; }
+    
+    // Business Methods
+    public void AddItem(OrderItem item) { /* ... */ }
+    public void UpdateStatus(OrderStatus newStatus) { /* ... */ }
+    public bool CanCancel() { /* ... */ }
+}
+
+// Order Item Entity
+public class OrderItem
+{
+    public Guid Id { get; set; }
+    public Guid OrderId { get; set; }
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; }
+    public string ProductSku { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal TotalPrice { get; set; }
+    public string ImageUrl { get; set; }
+    
+    public Order Order { get; set; }
+}
+
+// Value Object
+public class ShippingAddress
+{
+    public string FullName { get; set; }
+    public string Street { get; set; }
+    public string City { get; set; }
+    public string State { get; set; }
+    public string PostalCode { get; set; }
+    public string Country { get; set; }
+    public string PhoneNumber { get; set; }
+}
+```
+
+#### 11.6.5 Events Published/Consumed
+```csharp
+// Events Published
+public record OrderCreatedEvent(
+    Guid OrderId, 
+    string OrderNumber, 
+    Guid UserId, 
+    decimal TotalAmount, 
+    string Currency,
+    ShippingAddress ShippingAddress,
+    List<OrderItemDto> Items);
+
+public record OrderStatusChangedEvent(
+    Guid OrderId, 
+    OrderStatus OldStatus, 
+    OrderStatus NewStatus, 
+    DateTime ChangedAt);
+
+public record OrderCancelledEvent(
+    Guid OrderId, 
+    string Reason, 
+    decimal RefundAmount);
+
+public record OrderShippedEvent(
+    Guid OrderId, 
+    string TrackingNumber, 
+    string Carrier);
+
+// Events Consumed
+public record CartCheckoutInitiatedEvent(
+    Guid CartId, 
+    Guid UserId, 
+    List<CartItemDto> Items,
+    string CouponCode);
+
+public record PaymentProcessedEvent(
+    Guid PaymentId, 
+    Guid OrderId, 
+    bool Success, 
+    string TransactionId, 
+    string FailureReason);
+```
+
+#### 11.6.6 Payment Processing Flow
+```
+1. Order Service creates Payment record (Pending)
+2. Call Payment Provider (Stripe/PayPal):
+   
+   a) Credit Card Payment:
+      - Validate card details
+      - Authorize amount
+      - Capture on confirmation
+      
+   b) PayPal:
+      - Create PayPal order
+      - Capture on approval
+      
+   c) Points Payment:
+      - Verify user has enough points
+      - Deduct points
+
+3. Provider returns response:
+   - Success: Update Payment to Succeeded
+   - Pending: Keep as Pending, wait for webhook
+   - Failed: Update Payment to Failed, trigger retry
+
+4. On Payment Success:
+   - Update Order status to PaymentConfirmed
+   - Publish OrderCreatedEvent
+   - Start inventory fulfillment
+
+5. On Payment Failure:
+   - Update Order status to Failed
+   - Publish OrderFailedEvent
+   - Trigger refund if partial payment
+
+6. Webhook Handler:
+   - Receive async notifications from provider
+   - Reconcile with local Payment records
+   - Handle edge cases (duplicate, late notifications)
+```
+
+#### 11.6.7 Refund Processing
+```csharp
+public class RefundService
+{
+    public async Task<RefundResult> ProcessRefundAsync(Guid orderId, RefundRequest request)
+    {
+        var order = await _orderRepository.GetByIdAsync(orderId);
+        
+        // Validation
+        if (!order.CanRefund())
+            throw new InvalidOperationException("Order cannot be refunded");
+            
+        var refundAmount = request.Amount ?? order.TotalAmount;
+        if (refundAmount > order.TotalAmount)
+            throw new InvalidOperationException("Refund amount exceeds order total");
+        
+        // Process refund via original payment method
+        var refundResult = await _paymentService.RefundPaymentAsync(
+            order.Payment.Id, 
+            refundAmount);
+        
+        if (refundResult.Success)
+        {
+            order.UpdateStatus(OrderStatus.Refunded);
+            await _orderRepository.UpdateAsync(order);
+            
+            // Publish events
+            await _eventPublisher.PublishAsync(new OrderRefundedEvent(
+                orderId, refundAmount, refundResult.RefundId));
+            
+            // Reverse loyalty points if applicable
+            if (order.PointsEarned > 0)
+                await _eventPublisher.PublishAsync(new PointsReversedEvent(
+                    order.UserId, order.PointsEarned));
+        }
+        
+        return refundResult;
+    }
+}
+```
+
+### 11.7 Mango.Services.EmailAPI (Transactional Emails)
+- **Purpose**: Transactional email notifications
+- **Technology**: ASP.NET Core Web API, EF Core, SendGrid/SMTP
+- **Database**: SQL Server (EmailDb)
+- **Responsibilities**:
+  - Order confirmation emails
+  - Shipping notification emails
+  - Password reset emails
+  - Welcome emails
+  - Promotional emails
+  - Email template management
+  - Email queue management
+  - Bounce/complaint handling
+- **API Endpoints**:
+  ```
+  POST /api/v1/emails/send
+  POST /api/v1/emails/send-order-confirmation
+  POST /api/v1/emails/send-welcome
+  POST /api/v1/emails/send-password-reset
+  POST /api/v1/emails/send-shipping-notification
+  GET  /api/v1/emails/templates
+  GET  /api/v1/emails/templates/{id}
+  POST /api/v1/emails/templates
+  PUT  /api/v1/emails/templates/{id}
+  DELETE /api/v1/emails/templates/{id}
+  GET  /api/v1/emails/queue
+  GET  /api/v1/emails/logs
+  GET  /api/v1/emails/statistics
+  ```
+- **Events Consumed**: OrderCreatedEvent, UserRegisteredEvent, PasswordResetRequestedEvent, OrderShippedEvent
+
+#### 11.7.1 Email Template System
+```csharp
+// Email Template Entity
+public class EmailTemplate
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string Subject { get; set; }
+    public string Body { get; set; }  // HTML template with placeholders
+    public EmailType Type { get; set; }
+    public bool IsActive { get; set; }
+    public string FromName { get; set; }
+    public string FromEmail { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    public ICollection<EmailTemplateVariable> Variables { get; set; }
+}
+
+public class EmailTemplateVariable
+{
+    public Guid Id { get; set; }
+    public Guid TemplateId { get; set; }
+    public string Name { get; set; }        // {{userName}}
+    public string Description { get; set; }
+    public string DefaultValue { get; set; }
+    public bool IsRequired { get; set; }
+    public DataType DataType { get; set; }  // string, number, date, url
+    
+    public EmailTemplate Template { get; set; }
+}
+
+public enum EmailType
+{
+    Welcome = 1,
+    OrderConfirmation = 2,
+    OrderShipped = 3,
+    OrderDelivered = 4,
+    PasswordReset = 5,
+    EmailVerification = 6,
+    AccountLocked = 7,
+    Promotional = 8,
+    Newsletter = 9
+}
+
+// Template Engine
+public class EmailTemplateEngine
+{
+    public string RenderTemplate(EmailTemplate template, Dictionary<string, object> variables)
+    {
+        var subject = template.Subject;
+        var body = template.Body;
+        
+        foreach (var variable in template.Variables)
+        {
+            var value = variables.ContainsKey(variable.Name) 
+                ? variables[variable.Name] 
+                : variable.DefaultValue;
+                
+            subject = subject.Replace($"{{{{{variable.Name}}}}}", value?.ToString());
+            body = body.Replace($"{{{{{variable.Name}}}}}", value?.ToString());
+        }
+        
+        return new RenderedEmail
+        {
+            Subject = subject,
+            Body = body,
+            FromName = template.FromName,
+            FromEmail = template.FromEmail
+        };
+    }
+}
+```
+
+#### 11.7.2 Email Queue & Sending
+```csharp
+// Email Queue Entity
+public class EmailQueue
+{
+    public Guid Id { get; set; }
+    public string ToEmail { get; set; }
+    public string ToName { get; set; }
+    public string FromEmail { get; set; }
+    public string FromName { get; set; }
+    public string Subject { get; set; }
+    public string Body { get; set; }
+    public EmailType Type { get; set; }
+    public EmailPriority Priority { get; set; }
+    public EmailStatus Status { get; set; }
+    public int RetryCount { get; set; }
+    public string ErrorMessage { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ScheduledAt { get; set; }
+    public DateTime? ProcessedAt { get; set; }
+}
+
+public enum EmailStatus
+{
+    Pending = 1,
+    Scheduled = 2,
+    Sending = 3,
+    Sent = 4,
+    Failed = 5,
+    Bounced = 6,
+    Cancelled = 7
+}
+
+public enum EmailPriority
+{
+    Low = 1,
+    Normal = 2,
+    High = 3,
+    Critical = 4  // Order confirmations, password resets
+}
+
+// Email Service
+public class EmailService : IEmailService
+{
+    private readonly IEmailProvider _emailProvider;
+    private readonly IEmailTemplateEngine _templateEngine;
+    private readonly IEmailRepository _emailQueue;
+    
+    public async Task<SendResult> SendEmailAsync(SendEmailRequest request)
+    {
+        // Get template
+        var template = await _templateRepository.GetByTypeAsync(request.Type);
+        var rendered = _templateEngine.RenderTemplate(template, request.Variables);
+        
+        // Queue email
+        var emailQueue = new EmailQueue
+        {
+            ToEmail = request.ToEmail,
+            ToName = request.ToName,
+            FromEmail = rendered.FromEmail,
+            FromName = rendered.FromName,
+            Subject = rendered.Subject,
+            Body = rendered.Body,
+            Type = request.Type,
+            Priority = request.Priority,
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        await _emailQueue.CreateAsync(emailQueue);
+        
+        // Process immediately for critical emails
+        if (request.Priority == EmailPriority.Critical)
+        {
+            return await ProcessEmailAsync(emailQueue.Id);
+        }
+        
+        return new SendResult { EmailQueueId = emailQueue.Id, Status = "queued" };
+    }
+    
+    private async Task<SendResult> ProcessEmailAsync(Guid emailId)
+    {
+        var email = await _emailQueue.GetByIdAsync(emailId);
+        email.Status = EmailStatus.Sending;
+        
+        try
+        {
+            var result = await _emailProvider.SendAsync(new EmailMessage
+            {
+                To = email.ToEmail,
+                ToName = email.ToName,
+                From = email.FromEmail,
+                FromName = email.FromName,
+                Subject = email.Subject,
+                Body = email.Body,
+                IsHtml = true
+            });
+            
+            if (result.Success)
+            {
+                email.Status = EmailStatus.Sent;
+                email.SentAt = DateTime.UtcNow;
+            }
+            else
+            {
+                email.Status = EmailStatus.Failed;
+                email.ErrorMessage = result.ErrorMessage;
+                email.RetryCount++;
+                
+                // Retry logic
+                if (email.RetryCount < 3)
+                {
+                    email.Status = EmailStatus.Pending;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            email.Status = EmailStatus.Failed;
+            email.ErrorMessage = ex.Message;
+            email.RetryCount++;
+        }
+        
+        await _emailQueue.UpdateAsync(email);
+        return new SendResult { EmailQueueId = email.Id, Status = email.Status.ToString() };
+    }
+}
+```
+
+#### 11.7.3 Event Handlers
+```csharp
+// Event Handlers
+public class OrderCreatedEventHandler : IEventHandler<OrderCreatedEvent>
+{
+    public async Task HandleAsync(OrderCreatedEvent @event)
+    {
+        await _emailService.SendEmailAsync(new SendEmailRequest
+        {
+            ToEmail = @event.UserEmail,
+            ToName = @event.UserName,
+            Type = EmailType.OrderConfirmation,
+            Priority = EmailPriority.Critical,
+            Variables = new Dictionary<string, object>
+            {
+                { "orderNumber", @event.OrderNumber },
+                { "orderTotal", @event.TotalAmount },
+                { "orderItems", @event.Items },
+                { "shippingAddress", @event.ShippingAddress },
+                { "orderDate", @event.CreatedAt }
+            }
+        });
+    }
+}
+
+public class UserRegisteredEventHandler : IEventHandler<UserRegisteredEvent>
+{
+    public async Task HandleAsync(UserRegisteredEvent @event)
+    {
+        await _emailService.SendEmailAsync(new SendEmailRequest
+        {
+            ToEmail = @event.Email,
+            ToName = @event.Name,
+            Type = EmailType.Welcome,
+            Priority = EmailPriority.Normal,
+            Variables = new Dictionary<string, object>
+            {
+                { "userName", @event.Name },
+                { "verificationLink", @event.VerificationLink }
+            }
+        });
+    }
+}
+
+public class PasswordResetRequestedEventHandler : IEventHandler<PasswordResetRequestedEvent>
+{
+    public async Task HandleAsync(PasswordResetRequestedEvent @event)
+    {
+        await _emailService.SendEmailAsync(new SendEmailRequest
+        {
+            ToEmail = @event.Email,
+            Type = EmailType.PasswordReset,
+            Priority = EmailPriority.Critical,
+            Variables = new Dictionary<string, object>
+            {
+                { "resetLink", @event.ResetLink },
+                { "expiryHours", 24 }
+            }
+        });
+    }
+}
+```
+
+### 11.8 Mango.Services.CouponAPI (Discount Codes)
+- **Purpose**: Discount and promotion code management
+- **Technology**: ASP.NET Core Web API, EF Core
+- **Database**: SQL Server (CouponDb)
+- **Responsibilities**:
+  - Coupon creation and management
+  - Coupon validation and rules
+  - Discount calculation
+  - Usage tracking and limits
+  - Expiration management
+  - Campaign management
+- **API Endpoints**:
+  ```
+  GET    /api/v1/coupons
+  GET    /api/v1/coupons/active
+  GET    /api/v1/coupons/{code}
+  POST   /api/v1/coupons
+  PUT    /api/v1/coupons/{id}
+  DELETE /api/v1/coupons/{id}
+  POST   /api/v1/coupons/validate
+  GET    /api/v1/coupons/{id}/usage
+  GET    /api/v1/campaigns
+  POST   /api/v1/campaigns
+  PUT    /api/v1/campaigns/{id}
+  GET    /api/v1/campaigns/{id}/coupons
+  ```
+- **Domain Entities**: Coupon, CouponUsage, Campaign
+- **Events Published**: CouponCreatedEvent, CouponUsedEvent, CouponExpiredEvent, CouponValidationFailedEvent
+
+#### 11.8.1 Coupon Types & Rules
+```csharp
+// Coupon Entity
+public class Coupon
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; }  // e.g., SUMMER20, SAVE10
+    public string Name { get; set; }
+    public string Description { get; set; }
+    public CouponType Type { get; set; }
+    public decimal DiscountValue { get; set; }  // Amount or percentage
+    public decimal? MaxDiscountAmount { get; set; }  // Cap for percentage discounts
+    public decimal? MinPurchaseAmount { get; set; }  // Minimum order value
+    public decimal? MaxPurchaseAmount { get; set; }
+    
+    // Limits
+    public int? MaxUsages { get; set; }  // Total usage limit
+    public int CurrentUsageCount { get; set; }
+    public int? MaxUsagesPerUser { get; set; }
+    public int? MaxUsagesPerDay { get; set; }
+    
+    // Validity
+    public DateTime ValidFrom { get; set; }
+    public DateTime ValidUntil { get; set; }
+    public bool IsActive { get; set; }
+    
+    // Scope
+    public List<Guid> ApplicableCategoryIds { get; set; }  // Empty = all
+    public List<Guid> ApplicableProductIds { get; set; }    // Empty = all
+    public List<string> ApplicableUserRoles { get; set; }   // Empty = all
+    
+    // Campaign
+    public Guid? CampaignId { get; set; }
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    public Campaign Campaign { get; set; }
+    public ICollection<CouponUsage> Usages { get; set; }
+    
+    // Computed
+    public bool IsValid => IsActive && 
+        DateTime.UtcNow >= ValidFrom && 
+        DateTime.UtcNow <= ValidUntil &&
+        (!MaxUsages.HasValue || CurrentUsageCount < MaxUsages.Value);
+}
+
+public enum CouponType
+{
+    Percentage = 1,    // 20% off
+    FixedAmount = 2,    // $10 off
+    FreeShipping = 3,   // Free shipping
+    BuyXGetY = 4,      // Buy 2 get 1 free
+    LoyaltyPoints = 5   // Redeem points for discount
+}
+
+// Campaign Entity
+public class Campaign
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string Description { get; set; }
+    public CampaignStatus Status { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public decimal? Budget { get; set; }
+    public decimal CurrentSpend { get; set; }
+    public int? TargetAudienceSize { get; set; }
+    public string TargetUserSegments { get; set; }  // JSON
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    public ICollection<Coupon> Coupons { get; set; }
+}
+
+public enum CampaignStatus
+{
+    Draft = 1,
+    Scheduled = 2,
+    Active = 3,
+    Paused = 4,
+    Completed = 5,
+    Cancelled = 6
+}
+```
+
+#### 11.8.2 Coupon Validation Service
+```csharp
+public class CouponValidationService : ICouponValidationService
+{
+    public async Task<CouponValidationResult> ValidateAsync(
+        string couponCode, 
+        Guid userId, 
+        decimal orderAmount,
+        List<Guid> productIds)
+    {
+        var coupon = await _couponRepository.GetByCodeAsync(couponCode);
+        
+        if (coupon == null)
+            return CouponValidationResult.Invalid("Coupon not found");
+            
+        if (!coupon.IsValid)
+        {
+            if (!coupon.IsActive)
+                return CouponValidationResult.Invalid("Coupon is not active");
+            if (DateTime.UtcNow < coupon.ValidFrom)
+                return CouponValidationResult.Invalid("Coupon is not yet valid");
+            if (DateTime.UtcNow > coupon.ValidUntil)
+                return CouponValidationResult.Invalid("Coupon has expired");
+        }
+        
+        // Check total usage limit
+        if (coupon.MaxUsages.HasValue && 
+            coupon.CurrentUsageCount >= coupon.MaxUsages.Value)
+            return CouponValidationResult.Invalid("Coupon usage limit reached");
+            
+        // Check user-specific usage
+        var userUsageCount = await _couponUsageRepository
+            .GetUserUsageCountAsync(coupon.Id, userId);
+            
+        if (coupon.MaxUsagesPerUser.HasValue && 
+            userUsageCount >= coupon.MaxUsagesPerUser.Value)
+            return CouponValidationResult.Invalid("You have reached the maximum usage limit for this coupon");
+            
+        // Check daily usage
+        if (coupon.MaxUsagesPerDay.HasValue)
+        {
+            var dailyUsageCount = await _couponUsageRepository
+                .GetDailyUsageCountAsync(coupon.Id, userId);
+                
+            if (dailyUsageCount >= coupon.MaxUsagesPerDay.Value)
+                return CouponValidationResult.Invalid("Daily usage limit reached");
+        }
+        
+        // Check minimum purchase
+        if (coupon.MinPurchaseAmount.HasValue && 
+            orderAmount < coupon.MinPurchaseAmount.Value)
+            return CouponValidationResult.Invalid(
+                $"Minimum purchase of ${coupon.MinPurchaseAmount.Value} required");
+        
+        // Check product scope
+        if (coupon.ApplicableProductIds.Any())
+        {
+            var applicableProducts = productIds
+                .Intersect(coupon.ApplicableProductIds)
+                .ToList();
+                
+            if (!applicableProducts.Any())
+                return CouponValidationResult.Invalid(
+                    "This coupon is not applicable to your cart items");
+        }
+        
+        // Calculate discount
+        var discountAmount = CalculateDiscount(coupon, orderAmount);
+        
+        return CouponValidationResult.Valid(coupon, discountAmount);
+    }
+    
+    private decimal CalculateDiscount(Coupon coupon, decimal orderAmount)
+    {
+        return coupon.Type switch
+        {
+            CouponType.Percentage => 
+                Math.Min(
+                    orderAmount * (coupon.DiscountValue / 100),
+                    coupon.MaxDiscountAmount ?? decimal.MaxValue),
+            CouponType.FixedAmount => 
+                Math.Min(coupon.DiscountValue, orderAmount),
+            CouponType.FreeShipping => orderAmount,  // Flag for free shipping
+            _ => 0
+        };
+    }
+}
+
+public class CouponValidationResult
+{
+    public bool IsValid { get; set; }
+    public string ErrorMessage { get; set; }
+    public Coupon Coupon { get; set; }
+    public decimal DiscountAmount { get; set; }
+    
+    public static CouponValidationResult Valid(Coupon coupon, decimal discount)
+        => new() { IsValid = true, Coupon = coupon, DiscountAmount = discount };
+        
+    public static CouponValidationResult Invalid(string message)
+        => new() { IsValid = false, ErrorMessage = message };
+}
+```
+
+#### 11.8.3 Coupon Usage Tracking
+```csharp
+// Coupon Usage Entity
+public class CouponUsage
+{
+    public Guid Id { get; set; }
+    public Guid CouponId { get; set; }
+    public Guid UserId { get; set; }
+    public Guid? OrderId { get; set; }
+    public decimal OrderAmount { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public string IpAddress { get; set; }
+    public string UserAgent { get; set; }
+    public DateTime UsedAt { get; set; }
+    
+    public Coupon Coupon { get; set; }
+}
+
+// Usage Service
+public class CouponUsageService : ICouponUsageService
+{
+    public async Task RecordUsageAsync(RecordCouponUsageRequest request)
+    {
+        var coupon = await _couponRepository.GetByIdAsync(request.CouponId);
+        
+        // Create usage record
+        var usage = new CouponUsage
+        {
+            CouponId = request.CouponId,
+            UserId = request.UserId,
+            OrderId = request.OrderId,
+            OrderAmount = request.OrderAmount,
+            DiscountAmount = request.DiscountAmount,
+            IpAddress = request.IpAddress,
+            UserAgent = request.UserAgent,
+            UsedAt = DateTime.UtcNow
+        };
+        
+        await _couponUsageRepository.CreateAsync(usage);
+        
+        // Update coupon usage count
+        coupon.CurrentUsageCount++;
+        await _couponRepository.UpdateAsync(coupon);
+        
+        // Publish event
+        await _eventPublisher.PublishAsync(new CouponUsedEvent(
+            coupon.Code, request.UserId, request.OrderId, request.DiscountAmount));
+    }
+}
+```
+
+#### 11.8.4 Events Published
+```csharp
+public record CouponCreatedEvent(
+    Guid CouponId, 
+    string Code, 
+    string Name, 
+    CouponType Type, 
+    decimal DiscountValue,
+    DateTime ValidUntil);
+
+public record CouponUsedEvent(
+    string CouponCode, 
+    Guid UserId, 
+    Guid OrderId, 
+    decimal DiscountAmount);
+
+public record CouponExpiredEvent(
+    Guid CouponId, 
+    string Code,
+    int TotalUsages);
+
+public record CouponValidationFailedEvent(
+    string CouponCode, 
+    Guid UserId, 
+    string FailureReason);
+
+### 11.9 Mango.Services.RewardAPI (Loyalty Program)
+- **Purpose**: Loyalty points and rewards management
+- **Technology**: ASP.NET Core Web API, EF Core
+- **Database**: SQL Server (RewardDb)
+- **Responsibilities**:
+  - Points accumulation from purchases
+  - Points redemption for discounts
+  - Reward tier management
+  - Points history tracking
+  - Points expiration
+  - Tier upgrades/downgrades
+- **API Endpoints**:
+  ```
+  GET    /api/v1/rewards/balance
+  GET    /api/v1/rewards/history
+  POST   /api/v1/rewards/points/earn
+  POST   /api/v1/rewards/points/redeem
+  GET    /api/v1/rewards/tiers
+  GET    /api/v1/rewards/tiers/{id}
+  GET    /api/v1/rewards/available
+  GET    /api/v1/rewards/transactions
+  GET    /api/v1/rewards/benefits
+  POST   /api/v1/rewards/tiers
+  PUT    /api/v1/rewards/tiers/{id}
+  GET    /api/v1/rewards/statistics
+  ```
+- **Domain Entities**: RewardPoints, RewardTier, PointsTransaction, UserRewardProfile
+- **Events Published**: PointsEarnedEvent, PointsRedeemedEvent, TierUpgradedEvent, PointsExpiringEvent
+- **Events Consumed**: OrderCreatedEvent, OrderCompletedEvent, OrderCancelledEvent
+
+#### 11.9.1 Points System Configuration
+```csharp
+// User Reward Profile
+public class UserRewardProfile
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public int CurrentPoints { get; set; }
+    public int LifetimePoints { get; set; }
+    public int PendingPoints { get; set; }  // Points not yet credited
+    public Guid CurrentTierId { get; set; }
+    public DateTime TierEffectiveDate { get; set; }
+    public DateTime LastActivityDate { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    
+    public RewardTier CurrentTier { get; set; }
+    public ICollection<PointsTransaction> Transactions { get; set; }
+}
+
+// Reward Tier Entity
+public class RewardTier
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }           // Bronze, Silver, Gold, Platinum
+    public string Description { get; set; }
+    public int TierLevel { get; set; }         // 1, 2, 3, 4
+    public int PointsRequired { get; set; }     // Lifetime points needed
+    public int ValidityMonths { get; set; }     // Tier validity period
+    
+    // Earning Multiplier
+    public decimal PointsMultiplier { get; set; } = 1.0m;  // 1x, 1.5x, 2x, 3x
+    
+    // Benefits
+    public decimal DiscountPercentage { get; set; }  // Extra discount
+    public bool FreeShipping { get; set; }
+    public int EarlyAccessDays { get; set; }       // Early access to sales
+    public int BirthdayBonusPoints { get; set; }
+    
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    
+    public ICollection<UserRewardProfile> Members { get; set; }
+    public ICollection<TierBenefit> Benefits { get; set; }
+}
+
+// Points Transaction
+public class PointsTransaction
+{
+    public Guid Id { get; set; }
+    public Guid UserId { get; set; }
+    public TransactionType Type { get; set; }
+    public int Points { get; set; }
+    public int PointsBalance { get; set; }  // Balance after transaction
+    public Guid? RelatedEntityId { get; set; }  // OrderId, RewardId
+    public string Description { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public TransactionStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    
+    public UserRewardProfile User { get; set; }
+}
+
+public enum TransactionType
+{
+    Earned = 1,           // Points earned from purchase
+    Bonus = 2,            // Bonus points (signup, referral, birthday)
+    Redeemed = 3,         // Points redeemed for discount
+    Expired = 4,          // Points expired
+    Adjusted = 5,         // Manual adjustment
+    Refunded = 6          // Points returned from cancelled order
+}
+
+public enum TransactionStatus
+{
+    Pending = 1,
+    Credited = 2,
+    Debited = 3,
+    Expired = 4,
+    Cancelled = 5
+}
+```
+
+#### 11.9.2 Points Earning Rules
+```csharp
+// Points Configuration
+public class PointsConfiguration
+{
+    public int PointsPerDollarSpent { get; set; } = 1;  // 1 point per $1
+    public int WelcomeBonusPoints { get; set; } = 100;
+    public int ReferralBonusPoints { get; set; } = 200;
+    public int BirthdayBonusPoints { get; set; } = 50;
+    public int ReviewBonusPoints { get; set; } = 10;
+    public int PointsExpirationDays { get; set; } = 365;
+    public int MinimumPointsToRedeem { get; set; } = 100;
+    public decimal PointsValueInDollars { get; set; } = 0.01m;  // 100 points = $1
+}
+
+// Points Earning Service
+public class PointsEarnedService : IPointsEarnedService
+{
+    public async Task<int> CalculatePointsEarnedAsync(
+        Guid userId, 
+        decimal orderAmount)
+    {
+        var profile = await _profileRepository.GetByUserIdAsync(userId);
+        var tier = profile.CurrentTier;
+        
+        // Base points
+        int basePoints = (int)(orderAmount * _config.PointsPerDollarSpent);
+        
+        // Apply tier multiplier
+        int tierBonus = (int)(basePoints * (tier.PointsMultiplier - 1));
+        
+        return basePoints + tierBonus;
+    }
+    
+    public async Task<PointsTransaction> EarnPointsAsync(
+        Guid userId, 
+        int points, 
+        TransactionType type,
+        Guid? relatedEntityId, 
+        string description)
+    {
+        var profile = await _profileRepository.GetByUserIdAsync(userId);
+        
+        var transaction = new PointsTransaction
+        {
+            UserId = userId,
+            Type = type,
+            Points = points,
+            PointsBalance = profile.CurrentPoints + points,
+            RelatedEntityId = relatedEntityId,
+            Description = description,
+            ExpiresAt = DateTime.UtcNow.AddDays(_config.PointsExpirationDays),
+            Status = TransactionStatus.Credited,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        // Update profile
+        profile.CurrentPoints += points;
+        profile.LifetimePoints += points;
+        profile.LastActivityDate = DateTime.UtcNow;
+        
+        // Check for tier upgrade
+        await CheckAndUpgradeTierAsync(profile);
+        
+        await _transactionRepository.CreateAsync(transaction);
+        await _profileRepository.UpdateAsync(profile);
+        
+        // Publish event
+        await _eventPublisher.PublishAsync(new PointsEarnedEvent(
+            userId, points, profile.CurrentPoints, transaction.Id));
+            
+        return transaction;
+    }
+    
+    private async Task CheckAndUpgradeTierAsync(UserRewardProfile profile)
+    {
+        var nextTier = await _tierRepository.GetNextTierAsync(profile.CurrentTier.TierLevel);
+        
+        if (nextTier != null && profile.LifetimePoints >= nextTier.PointsRequired)
+        {
+            profile.CurrentTierId = nextTier.Id;
+            profile.TierEffectiveDate = DateTime.UtcNow;
+            
+            await _eventPublisher.PublishAsync(new TierUpgradedEvent(
+                profile.UserId, 
+                profile.CurrentTier.Name, 
+                nextTier.Name));
+        }
+    }
+}
+```
+
+#### 11.9.3 Points Redemption
+```csharp
+// Points Redemption Service
+public class PointsRedemptionService : IPointsRedemptionService
+{
+    public async Task<RedemptionResult> RedeemPointsAsync(
+        Guid userId, 
+        int points, 
+        Guid? orderId)
+    {
+        var profile = await _profileRepository.GetByUserIdAsync(userId);
+        
+        // Validation
+        if (points < _config.MinimumPointsToRedeem)
+            return RedemptionResult.Invalid(
+                $"Minimum {_config.MinimumPointsToRedeem} points required to redeem");
+            
+        if (points > profile.CurrentPoints)
+            return RedemptionResult.Invalid("Insufficient points balance");
+        
+        // Check for expiring points
+        var expiringPoints = await _transactionRepository
+            .GetExpiringPointsAsync(userId, DateTime.UtcNow.AddDays(30));
+            
+        if (points > profile.CurrentPoints - expiringPoints)
+        {
+            // Warn about using expiring points first
+            return RedemptionResult.Warning(
+                "Some points will expire soon. Consider using them first.", expiringPoints);
+        }
+        
+        // Calculate discount value
+        decimal discountAmount = points * _config.PointsValueInDollars;
+        
+        // Apply tier discount bonus
+        var tier = profile.CurrentTier;
+        discountAmount += discountAmount * (tier.DiscountPercentage / 100);
+        
+        // Create transaction
+        var transaction = new PointsTransaction
+        {
+            UserId = userId,
+            Type = TransactionType.Redeemed,
+            Points = -points,
+            PointsBalance = profile.CurrentPoints - points,
+            RelatedEntityId = orderId,
+            Description = $"Redeemed for ${discountAmount:F2} discount",
+            Status = TransactionStatus.Debited,
+            CreatedAt = DateTime.UtcNow
+        };
+        
+        // Update profile
+        profile.CurrentPoints -= points;
+        profile.LastActivityDate = DateTime.UtcNow;
+        
+        await _transactionRepository.CreateAsync(transaction);
+        await _profileRepository.UpdateAsync(profile);
+        
+        // Publish event
+        await _eventPublisher.PublishAsync(new PointsRedeemedEvent(
+            userId, points, discountAmount, orderId, transaction.Id));
+            
+        return RedemptionResult.Success(points, discountAmount);
+    }
+}
+```
+
+#### 11.9.4 Points Expiration Job
+```csharp
+// Points Expiration Background Job
+public class PointsExpirationJob : IHostedService
+{
+    public async Task ProcessExpiredPointsAsync()
+    {
+        var expiredTransactions = await _transactionRepository
+            .GetExpiredTransactionsAsync(DateTime.UtcNow);
+            
+        foreach (var transaction in expiredTransactions)
+        {
+            if (transaction.Status == TransactionStatus.Credited)
+            {
+                var profile = await _profileRepository.GetByUserIdAsync(transaction.UserId);
+                
+                // Deduct expired points
+                profile.CurrentPoints -= transaction.Points;
+                transaction.Status = TransactionStatus.Expired;
+                
+                await _profileRepository.UpdateAsync(profile);
+                await _transactionRepository.UpdateAsync(transaction);
+                
+                // Publish expiration event
+                await _eventPublisher.PublishAsync(new PointsExpiredEvent(
+                    transaction.UserId, transaction.Points, transaction.Id));
+            }
+        }
+    }
+}
+```
+
+#### 11.9.5 Events Published/Consumed
+```csharp
+// Events Published
+public record PointsEarnedEvent(
+    Guid UserId, 
+    int PointsEarned, 
+    int NewBalance,
+    Guid TransactionId);
+
+public record PointsRedeemedEvent(
+    Guid UserId, 
+    int PointsRedeemed, 
+    decimal DiscountAmount,
+    Guid? OrderId,
+    Guid TransactionId);
+
+public record PointsExpiredEvent(
+    Guid UserId, 
+    int PointsExpired,
+    Guid TransactionId);
+
+public record TierUpgradedEvent(
+    Guid UserId, 
+    string OldTier, 
+    string NewTier);
+
+// Events Consumed
+public record OrderCreatedEvent(
+    Guid OrderId, 
+    Guid UserId, 
+    decimal TotalAmount);  // Earn pending points
+
+public record OrderCompletedEvent(
+    Guid OrderId, 
+    Guid UserId);  // Confirm pending points
+
+public record OrderCancelledEvent(
+    Guid OrderId, 
+    Guid UserId, 
+    int PointsEarned);  // Reverse earned points
+
+### 11.10 Mango.MessageBus (MassTransit + RabbitMQ)
+- **Purpose**: Shared messaging infrastructure for event-driven communication
+- **Technology**: MassTransit 10.0, RabbitMQ 3.13, ASP.NET Core 10
+- **Responsibilities**:
+  - Event publishing via MassTransit
+  - Event subscription with consumers
+  - Message serialization (JSON)
+  - Dead letter queue handling
+  - Retry policies
+- **Architecture**:
+  ```
+  // Event Types (using MassTransit contracts)
+  - IntegrationEvent (base interface)
+  - ProductCreatedEvent
+  - ProductUpdatedEvent  
+  - CartUpdatedEvent
+  - CartCheckoutInitiatedEvent
+  - OrderCreatedEvent
+  - OrderStatusChangedEvent
+  - PaymentProcessedEvent
+  - UserRegisteredEvent
+  - PointsEarnedEvent
+  - CouponUsedEvent
+  
+  // Exchange Types (MassTransit Topics)
+  - payment.events
+  - order.events
+  - product.events
+  - notification.events
+  ```
+- **Queue Conventions**: {ServiceName}.{EventName}
+- **Features**:
+  - Automatic retry (3 attempts with exponential backoff)
+  - Dead letter queues
+  - Message persistence
+  - Correlation ID propagation (W3C compatible)
+
+#### 11.10.1 MassTransit Configuration
+```csharp
+// Program.cs - MassTransit Configuration
+public static class MassTransitExtensions
+{
+    public static IServiceCollection AddMangoMessageBus(this IServiceCollection services)
+    {
+        services.AddMassTransit(x =>
+        {
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.Host("rabbitmq", "/", h =>
+                {
+                    h.Username("mango");
+                    h.Password("mango123");
+                });
+                
+                // Configure endpoints
+                cfg.ConfigureEndpoints(context);
+                
+                // Retry policy
+                cfg.UseMessageRetry(r => r.Interval(3, TimeSpan.FromSeconds(5)));
+                
+                // Serialization
+                cfg.UseJsonSerializer();
+                
+                // Health check
+                cfg.ConfigureHealthCheckEndpoints(context);
+            });
+        });
+        
+        return services;
+    }
+}
+```
+
+#### 11.10.2 Publishing Events with MassTransit
+```csharp
+// Event Definition
+public record OrderCreatedEvent : CorrelatedBy<Guid>
+{
+    public Guid CorrelationId { get; init; }
+    public Guid OrderId { get; init; }
+    public string OrderNumber { get; init; }
+    public Guid UserId { get; init; }
+    public decimal TotalAmount { get; init; }
+    public DateTime OccurredAt { get; init; } = DateTime.UtcNow;
+}
+
+// Event Publisher
+public interface IOrderEventPublisher
+{
+    Task PublishOrderCreatedAsync(Order order);
+}
+
+public class OrderEventPublisher : IOrderEventPublisher
+{
+    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly ILogger<OrderEventPublisher> _logger;
+    
+    public async Task PublishOrderCreatedAsync(Order order)
+    {
+        var @event = new OrderCreatedEvent
+        {
+            CorrelationId = order.Id,
+            OrderId = order.Id,
+            OrderNumber = order.OrderNumber,
+            UserId = order.UserId,
+            TotalAmount = order.TotalAmount
+        };
+        
+        await _publishEndpoint.Publish(@event);
+        
+        _logger.LogInformation("Published OrderCreatedEvent for {OrderId}", order.Id);
+    }
+}
+```
+
+#### 11.10.3 Consuming Events with MassTransit
+```csharp
+// Event Consumer
+public class OrderCreatedEmailConsumer : IConsumer<OrderCreatedEvent>
+{
+    private readonly IEmailService _emailService;
+    private readonly ILogger<OrderCreatedEmailConsumer> _logger;
+    
+    public async Task Consume(ConsumeContext<OrderCreatedEvent> context)
+    {
+        var message = context.Message;
+        
+        _logger.LogInformation("Processing OrderCreatedEvent for {OrderId}", message.OrderId);
+        
+        await _emailService.SendOrderConfirmationAsync(message.UserId, message.OrderNumber);
+        
+        _logger.LogInformation("Order confirmation sent for {OrderId}", message.OrderId);
+    }
+}
+
+// Consumer Registration
+public static class MassTransitExtensions
+{
+    public static IServiceCollection AddConsumers(this IServiceCollection services)
+    {
+        services.AddMassTransit(x =>
+        {
+            x.AddConsumer<OrderCreatedEmailConsumer>();
+            x.AddConsumer<OrderCreatedRewardPointsConsumer>();
+            x.AddConsumer<OrderCreatedInventoryConsumer>();
+            
+            x.UsingRabbitMq((context, cfg) =>
+            {
+                cfg.ConfigureEndpoints(context);
+            });
+        });
+        
+        return services;
+    }
+}
+```
+
+#### 11.10.4 Outbox Pattern for Reliability
+```csharp
+// Outbox Configuration
+public class OrderOutboxDbContext : DbContext
+{
+    public DbSet<OutboxMessage> OutboxMessages { get; set; }
+    
+    protected override void OnModelCreating(ModelBuilder builder)
+    {
+        builder.Entity<OutboxMessage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Payload).HasColumnType("nvarchar(max)");
+        });
+    }
+}
+
+// Outbox Message
+public class OutboxMessage
+{
+    public Guid Id { get; set; }
+    public string Type { get; set; }
+    public string Payload { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ProcessedAt { get; set; }
+    public int RetryCount { get; set; }
+}
+
+// Saga State Machine (for long-running processes)
+public class OrderSaga : MassTransitStateMachine<OrderSagaState>
+{
+    public State OrderPlaced { get; private set; }
+    public State PaymentVerified { get; private set; }
+    public State OrderCompleted { get; private set; }
+    
+    public Event<OrderPlacedEvent> OrderPlaced { get; private set; }
+    public Event<PaymentVerifiedEvent> PaymentVerified { get; private set; }
+    public Event<OrderCompletedEvent> OrderCompleted { get; private set; }
+    
+    public OrderSaga()
+    {
+        InstanceState(x => x.CurrentState);
+        
+        Initially(
+            When(OrderPlaced)
+                .Then(context =>
+                {
+                    context.Saga.OrderId = context.Message.OrderId;
+                    context.Saga.CustomerId = context.Message.CustomerId;
+                })
+                .TransitionTo(OrderPlaced)
+                .Publish(context => new VerifyPaymentCommand(context.Saga.OrderId)));
+    }
+}
+```
+
+#### 11.10.1 Integration Event Base
+```csharp
+// Base Integration Event
+public abstract class IntegrationEvent
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+    public string CorrelationId { get; set; }
+    public Dictionary<string, string> Headers { get; set; } = new();
+}
+
+// Example Event
+public class OrderCreatedEvent : IntegrationEvent
+{
+    public Guid OrderId { get; set; }
+    public string OrderNumber { get; set; }
+    public Guid UserId { get; set; }
+    public decimal TotalAmount { get; set; }
+    public List<OrderItemDto> Items { get; set; }
+}
+```
+
+#### 11.10.2 Event Publisher
+```csharp
+public interface IEventPublisher
+{
+    Task PublishAsync<T>(T @event, CancellationToken ct = default) 
+        where T : IntegrationEvent;
+    
+    Task PublishAsync<T>(T @event, string exchange, string routingKey, 
+        CancellationToken ct = default) where T : IntegrationEvent;
+}
+
+public class RabbitMqEventPublisher : IEventPublisher
+{
+    private readonly IConnection _connection;
+    private readonly IMessageSerializer _serializer;
+    private readonly ILogger<RabbitMqEventPublisher> _logger;
+    
+    public async Task PublishAsync<T>(T @event, CancellationToken ct = default) 
+        where T : IntegrationEvent
+    {
+        var exchange = GetExchangeName<T>();
+        var routingKey = GetRoutingKey<T>();
+        
+        await PublishAsync(@event, exchange, routingKey, ct);
+    }
+    
+    private async Task PublishAsync<T>(T @event, string exchange, 
+        string routingKey, CancellationToken ct) where T : IntegrationEvent
+    {
+        using var channel = _connection.CreateModel();
+        
+        channel.ExchangeDeclare(exchange, ExchangeType.Topic, durable: true);
+        
+        var message = _serializer.Serialize(@event);
+        var properties = CreateMessageProperties(@event);
+        
+        channel.BasicPublish(exchange, routingKey, properties, message);
+        
+        _logger.LogInformation("Published event {EventId} to {Exchange}.{RoutingKey}",
+            @event.Id, exchange, routingKey);
+    }
+    
+    private IBasicProperties CreateMessageProperties(IntegrationEvent @event)
+    {
+        var props = _connection.CreateModel().CreateBasicProperties();
+        props.Persistent = true;
+        props.MessageId = @event.Id.ToString();
+        props.CorrelationId = @event.CorrelationId;
+        props.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        props.ContentType = "application/json";
+        return props;
+    }
+}
+```
+
+#### 11.10.3 Event Subscriber
+```csharp
+public interface IEventSubscriber
+{
+    void Subscribe<T>(Func<T, Task> handler) where T : IntegrationEvent;
+    void SubscribeAsync<T>(Func<T, Task> handler, string queueName) 
+        where T : IntegrationEvent;
+}
+
+public class RabbitMqEventSubscriber : IEventSubscriber, IDisposable
+{
+    private readonly IConnection _connection;
+    private readonly IMessageSerializer _serializer;
+    private readonly ILogger<RabbitMqEventSubscriber> _logger;
+    private readonly List<IModel> _channels = new();
+    
+    public void Subscribe<T>(Func<T, Task> handler) where T : IntegrationEvent
+    {
+        var queueName = GetQueueName<T>();
+        SubscribeAsync(handler, queueName);
+    }
+    
+    public void SubscribeAsync<T>(Func<T, Task> handler, string queueName) 
+        where T : IntegrationEvent
+    {
+        var channel = _connection.CreateModel();
+        _channels.Add(channel);
+        
+        var exchange = GetExchangeName<T>();
+        var routingKey = GetRoutingKey<T>();
+        
+        channel.ExchangeDeclare(exchange, ExchangeType.Topic, durable: true);
+        channel.QueueDeclare(queueName, durable: true, exclusive: false, 
+            autoDelete: false, arguments: null);
+        
+        // Bind to dead letter exchange
+        var dlxArgs = new Dictionary<string, object>
+        {
+            { "x-dead-letter-exchange", exchange + ".dlx" },
+            { "x-dead-letter-routing-key", routingKey }
+        };
+        channel.QueueDeclare(queueName + ".dlq", durable: true, 
+            exclusive: false, autoDelete: false);
+        
+        channel.QueueBind(queueName, exchange, routingKey);
+        
+        var consumer = new EventingBasicConsumer(channel);
+        consumer.Received += async (model, ea) =>
+        {
+            try
+            {
+                var body = ea.Body.ToArray();
+                var @event = _serializer.Deserialize<T>(body);
+                @event.CorrelationId = ea.BasicProperties.CorrelationId;
+                
+                await handler(@event);
+                
+                channel.BasicAck(ea.DeliveryTag, multiple: false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing message {MessageId}", 
+                    ea.BasicProperties.MessageId);
+                
+                // Reject and send to DLQ
+                channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
+            }
+        };
+        
+        channel.BasicConsume(queueName, autoAck: false, consumer: consumer);
+    }
+}
+```
+
+#### 11.10.4 Retry Policy
+```csharp
+// Polly Retry Policy
+public class RetryPolicy
+{
+    public static IAsyncPolicy CreateRetryPolicy(int retryCount = 3)
+    {
+        return Policy
+            .Handle<Exception>()
+            .WaitAndRetryAsync(
+                retryCount,
+                retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                (exception, timeSpan, retryCount, context) =>
+                {
+                    Log.Warning("Retry {RetryCount} after {Delay}s due to: {Message}",
+                        retryCount, timeSpan.TotalSeconds, exception.Message);
+                });
+    }
+    
+    public static IAsyncPolicy CreateCircuitBreakerPolicy()
+    {
+        return Policy
+            .Handle<Exception>()
+            .CircuitBreakerAsync(
+                exceptionsAllowedBeforeBreaking: 5,
+                durationOfBreak: TimeSpan.FromSeconds(30));
+    }
+}
+```
+
+#### 11.10.5 Event Message Format
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "occurredAt": "2026-02-22T12:00:00Z",
+  "correlationId": "corr-12345",
+  "headers": {
+    "sourceService": "order-api",
+    "userId": "user-123"
+  },
+  "payload": {
+    "orderId": "order-123",
+    "orderNumber": "ORD-20260222-00001",
+    "totalAmount": 99.99
+  }
+}
+```
+
+---
+
+## 14. Code Review Checklist
+
+- [ ] Follows DDD layering (Presentation → Application → Domain → Infrastructure)
+- [ ] SOLID principles applied
+- [ ] Unit tests for business logic (80%+ coverage)
+- [ ] Integration tests for data access
+- [ ] JWT authentication implemented
+- [ ] RBAC authorization with policies
+- [ ] Input validation on all endpoints
+- [ ] Structured logging in place
+- [ ] Health checks configured
+- [ ] API versioning documented
+- [ ] OpenTelemetry tracing enabled
+- [ ] Docker image optimized
+- [ ] Kubernetes manifests included
+
+### Grade A+ Specific Requirements
+- [ ] Circuit breaker pattern for all external service calls
+- [ ] W3C Trace Context propagation across services
+- [ ] Idempotency keys for write operations
+- [ ] SAGA pattern for distributed transactions
+- [ ] API response wrappers (success/error/pagination)
+- [ ] Service can run independently (no shared databases)
+- [ ] Event-driven communication documented
+- [ ] Retry policies with exponential backoff
+- [ ] Dead letter queue configuration
+- [ ] mTLS readiness for service mesh
+
+---
+
+## 15. CI/CD Pipeline
+
+```
+yaml
+# azure-pipelines.yml
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildAndTest
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '10.0.x'
+          - script: dotnet build --configuration Release
+          - script: dotnet test --configuration Release --collect:"XPlat Code Coverage"
+          - script: dotnet format --verify-no-changes
+
+  - stage: Docker
+    jobs:
+      - job: BuildAndPush
+        steps:
+          - script: docker build -t mango/catalog-service:$(Build.BuildNumber) .
+          - script: docker push mango/catalog-service:$(Build.BuildNumber)
+
+  - stage: Deploy
+    jobs:
+      - deployment: DeployToK8s
+        environment: 'Production'
+```
+
+---
+
+## 16. Naming Conventions
+
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Entities | PascalCase, Noun | `Product`, `Order` |
+| Value Objects | PascalCase, Noun | `Money`, `Address` |
+| Commands | {Action}{Entity}Command | `CreateProductCommand` |
+| Queries | {Entity}Query / Get{Entity}Query | `GetProductQuery` |
+| DTOs | PascalCase, ends with DTO | `ProductDto`, `CreateProductRequest` |
+| Interfaces | starts with I | `IProductRepository` |
+| Events | {Entity}{Event}Event | `ProductCreatedEvent` |
+| Services | PascalCase, ends with Service | `ProductService` |
+
+---
+
+## 17. Error Handling
+
+```
+csharp
+// Global Exception Handler
+public class GlobalExceptionHandler : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(
+        HttpContext context,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        var (statusCode, message) = exception switch
+        {
+            NotFoundException => (StatusCodes.Status404NotFound, exception.Message),
+            ValidationException => (StatusCodes.Status400BadRequest, exception.Message),
+            UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Unauthorized"),
+            _ => (StatusCodes.Status500InternalServerError, "Internal Server Error")
+        };
+
+        context.Response.StatusCode = statusCode;
+        await context.Response.WriteAsJsonAsync(new { error = message });
+        return true;
+    }
+}
+```
+
+---
+
+## 18. Non-Functional Requirements
+
+### Standard Requirements
+- **Availability**: 99.9% uptime (SLA)
+- **Performance**: P95 response time < 200ms
+- **Scalability**: Horizontal scaling with Kubernetes
+- **Security**: OWASP Top 10 compliance
+- **Observability**: Full distributed tracing
+- **Resilience**: Circuit breaker, retry policies
+
+### Grade A+ Requirements
+- **Availability**: 99.99% uptime (multi-region)
+- **Performance**: P99 response time < 100ms
+- **Scalability**: Auto-scaling based on metrics
+- **Security**: mTLS, secrets management (Vault)
+- **Observability**: Real-time alerting, APM
+- **Resilience**: Chaos engineering, failover testing
+- **Data**: Point-in-time recovery, geo-replication
+- **Compliance**: GDPR, PCI-DSS ready
+
+---
+
+## 19. References
+
+- Microsoft .NET Documentation
+- Microsoft Azure Architecture Center
+- Domain-Driven Design by Eric Evans
+- CQRS Journey by Microsoft
+- 12-Factor App methodology
+- OWASP Security Guidelines
+
+---
+
+*This constitution serves as the single source of truth for all architectural decisions in the Mango Microservices platform.*

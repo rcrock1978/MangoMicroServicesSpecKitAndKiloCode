@@ -1,0 +1,119 @@
+# Kubernetes Ingress for API Gateway
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mango-ingress
+  namespace: mango-production
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "mango-session"
+    nginx.ingress.kubernetes.io/session-cookie-hash: "sha1"
+spec:
+  tls:
+  - hosts:
+    - api.mangoecommerce.com
+    - www.api.mangoecommerce.com
+    secretName: mango-tls-cert
+  rules:
+  - host: api.mangoecommerce.com
+    http:
+      paths:
+      # Auth API
+      - path: /api/auth
+        pathType: Prefix
+        backend:
+          service:
+            name: auth-api
+            port:
+              number: 80
+      # Product API
+      - path: /api/products
+        pathType: Prefix
+        backend:
+          service:
+            name: product-api
+            port:
+              number: 80
+      # Cart API
+      - path: /api/cart
+        pathType: Prefix
+        backend:
+          service:
+            name: cart-api
+            port:
+              number: 80
+      # Order API
+      - path: /api/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: order-api
+            port:
+              number: 80
+      # Coupon API
+      - path: /api/coupons
+        pathType: Prefix
+        backend:
+          service:
+            name: coupon-api
+            port:
+              number: 80
+      # Reward API
+      - path: /api/rewards
+        pathType: Prefix
+        backend:
+          service:
+            name: reward-api
+            port:
+              number: 80
+      # Email API
+      - path: /api/emails
+        pathType: Prefix
+        backend:
+          service:
+            name: email-api
+            port:
+              number: 80
+      # Gateway Health
+      - path: /health
+        pathType: Exact
+        backend:
+          service:
+            name: mango-gateway
+            port:
+              number: 80
+---
+# Web Application Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mango-web-ingress
+  namespace: mango-production
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - mangoecommerce.com
+    - www.mangoecommerce.com
+    secretName: mango-web-tls-cert
+  rules:
+  - host: mangoecommerce.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mango-web
+            port:
+              number: 80

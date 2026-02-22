@@ -1,0 +1,39 @@
+# Resource Quotas for Mango Production Namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mango-quota
+  namespace: mango-production
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: "40Gi"
+    limits.cpu: "40"
+    limits.memory: "80Gi"
+    pods: "50"
+    services: "20"
+    secrets: "30"
+    configmaps: "20"
+    persistentvolumeclaims: "10"
+---
+# Limit Ranges
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mango-limits
+  namespace: mango-production
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: "2Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    default:
+      cpu: "200m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+    type: Container

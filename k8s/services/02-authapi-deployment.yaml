@@ -1,0 +1,153 @@
+# Kubernetes Deployment for Auth API
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-api
+  namespace: mango-production
+  labels:
+    app: auth-api
+    version: v1
+    tier: backend
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: auth-api
+  template:
+    metadata:
+      labels:
+        app: auth-api
+        version: v1
+        tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: mango-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: auth-api
+        image: mango/auth-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        env:
+        - name: ASPNETCORE_ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: mango-config
+              key: ASPNETCORE_ENVIRONMENT
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: mango-secrets
+              key: ConnectionStrings__DefaultConnection
+        - name: Jwt__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: mango-secrets
+              key: Jwt__SecretKey
+        - name: Jwt__Issuer
+          valueFrom:
+            secretKeyRef:
+              name: mango-secrets
+              key: Jwt__Issuer
+        - name: Jwt__Audience
+          valueFrom:
+            secretKeyRef:
+              name: mango-secrets
+              key: Jwt__Audience
+        - name: OTEL_SERVICE_NAME
+          value: "auth-api"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - auth-api
+              topologyKey: kubernetes.io/hostname
+---
+# Service for Auth API
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-api
+  namespace: mango-production
+  labels:
+    app: auth-api
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: auth-api
+---
+# Horizontal Pod Autoscaler for Auth API
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-api-hpa
+  namespace: mango-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

@@ -1,0 +1,53 @@
+# Kubernetes ConfigMap for Mango Microservices
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mango-config
+  namespace: mango-production
+data:
+  # Application Settings
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:80"
+  
+  # Logging
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft: "Warning"
+  Logging__LogLevel__System: "Warning"
+  
+  # Database
+  Database__Provider: "SqlServer"
+  
+  # Redis
+  Redis__InstanceName: "mango_"
+  
+  # RabbitMQ
+  RabbitMQ__Host: "rabbitmq.mango-messaging.svc.cluster.local"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__VirtualHost: "/"
+  
+  # API Gateway
+  Gateway__Url: "http://mango-gateway"
+  
+  # Services URLs (Internal)
+  Services__Auth__Url: "http://auth-api"
+  Services__Product__Url: "http://product-api"
+  Services__Cart__Url: "http://cart-api"
+  Services__Order__Url: "http://order-api"
+  Services__Coupon__Url: "http://coupon-api"
+  Services__Reward__Url: "http://reward-api"
+  Services__Email__Url: "http://email-api"
+  
+  # OpenTelemetry
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector.mango-production:4317"
+  OTEL_SERVICE_NAME: "mango"
+---
+# Messaging ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mango-messaging-config
+  namespace: mango-messaging
+data:
+  RabbitMQ__Host: "rabbitmq"
+  RabbitMQ__Port: "5672"
+  RabbitMQ__VirtualHost: "/"

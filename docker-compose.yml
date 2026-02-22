@@ -1,0 +1,279 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mango-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=@StrongPassword123
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P @StrongPassword123 -Q "SELECT 1"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mango-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mango-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - mango-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mango-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=mango
+      - RABBITMQ_DEFAULT_PASS=mango123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mango-network
+
+  # ============================================
+  # MICROSERVICES
+  # ============================================
+
+  mango-gateway:
+    build:
+      context: ./src
+      dockerfile: ../Mango.GatewaySolution/Dockerfile
+    container_name: mango-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+    ports:
+      - "5000:80"
+    depends_on:
+      - auth-api
+      - product-api
+      - cart-api
+      - order-api
+      - coupon-api
+      - reward-api
+      - email-api
+    networks:
+      - mango-network
+
+  mango-web:
+    build:
+      context: ./src
+      dockerfile: ../Mango.Web/Dockerfile
+    container_name: mango-web
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:80
+      - GatewayUrl=http://mango-gateway:80
+    ports:
+      - "5001:80"
+    depends_on:
+      - mango-gateway
+    networks:
+      - mango-network
+
+  auth-api:
+    build:
+      context: ./src/Services/AuthAPI
+      dockerfile: Dockerfile
+    container_name: mango-auth-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoAuth;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - Jwt__SecretKey=SuperSecretKeyForDevelopmentMustBe32Characters!
+      - Jwt__Issuer=mango-api
+      - Jwt__Audience=mango-client
+    ports:
+      - "5002:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  product-api:
+    build:
+      context: ./src/Services/ProductAPI
+      dockerfile: Dockerfile
+    container_name: mango-product-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoProduct;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5003:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  cart-api:
+    build:
+      context: ./src/Services/ShoppingCartAPI
+      dockerfile: Dockerfile
+    container_name: mango-cart-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoCart;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - Redis__Host=redis
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5004:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  order-api:
+    build:
+      context: ./src/Services/OrderAPI
+      dockerfile: Dockerfile
+    container_name: mango-order-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoOrder;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+    ports:
+      - "5005:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  coupon-api:
+    build:
+      context: ./src/Services/CouponAPI
+      dockerfile: Dockerfile
+    container_name: mango-coupon-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoCoupon;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+    ports:
+      - "5006:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  reward-api:
+    build:
+      context: ./src/Services/RewardAPI
+      dockerfile: Dockerfile
+    container_name: mango-reward-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoReward;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+    ports:
+      - "5007:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  email-api:
+    build:
+      context: ./src/Services/EmailAPI
+      dockerfile: Dockerfile
+    container_name: mango-email-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=MangoEmail;User=sa;Password=@StrongPassword123;TrustServerCertificate=True
+      - RabbitMQ__Host=rabbitmq
+      - Email__SendGridKey=dummy_key_for_dev
+    ports:
+      - "5008:80"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mango-network
+
+  # ============================================
+  # OBSERVABILITY
+  # ============================================
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.47
+    container_name: mango-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - mango-network
+
+  seq:
+    image: datalust/seq:latest
+    container_name: mango-seq
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5341:80"
+    networks:
+      - mango-network
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: mango-portainer
+    ports:
+      - "9000:8000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - mango-network
+
+# ============================================
+# NETWORKS & VOLUMES
+# ============================================
+
+networks:
+  mango-network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
+  redis_data:
+  rabbitmq_data:
+  portainer_data:

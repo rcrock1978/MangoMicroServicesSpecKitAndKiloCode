@@ -1,0 +1,20 @@
+# Kubernetes Namespace for Mango Microservices
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mango-production
+  labels:
+    environment: production
+    app: mango-ecommerce
+    # Add common labels
+    version: "3.0.0"
+    managed-by: kubectl
+---
+# Messaging Namespace for RabbitMQ
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mango-messaging
+  labels:
+    environment: production
+    app: mango-messaging
