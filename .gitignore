@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+*.tmp
+
+# Project specific
+*.log
+.env
+.env.local
+*.lock
+
+# Spec Kit-specific files
+.genreleases/
+*.zip
+sdd-*/
+docs/dev
+
+# Extension system
+.specify/extensions/.cache/
+.specify/extensions/.backup
+
+
+src/Services/AuthAPI/bin/Debug/net9.0/
+src/Services/AuthAPI/bin/Debug/net8.0/
+src/Services/AuthAPI/obj/Debug/net9.0/*
+src/Services/ProductAPI/bin/Debug/net8.0/*
+
+src/Services/ProductAPI/obj/*
+
+src/Services/AuthAPI/obj/*
+src/Shared/Mango.Common/bin/*
+src/Services/AuthAPI/obj*
+src/Shared/Mango.Common/obj/Debug/*
+src/Shared/Mango.Infrastructure/obj/*
+src/Shared/Mango.MessageBus/bin/Debug/*
+src/Shared/Mango.MessageBus/obj/*
+src/Shared/Mango.Infrastructure/bin/Debug/*
+src/Shared/Mango.Common/obj/*
+src/Services/AuthAPI/obj/*
+src/Services/ProductAPI/obj/*
+src/Services/ProductAPI/bin/Debug/*

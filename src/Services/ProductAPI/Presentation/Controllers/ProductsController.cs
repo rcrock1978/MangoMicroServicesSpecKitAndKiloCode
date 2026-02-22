@@ -25,7 +25,7 @@ public class ProductsController : ControllerBase
     public IActionResult GetProducts()
     {
         _logger.LogInformation("GetProducts called");
-        return Ok(new { message = "Products endpoint - implementation pending", products = new[] { } });
+        return Ok(new { message = "Products endpoint - implementation pending", products = new object[0] });
     }
 
     /// <summary>
