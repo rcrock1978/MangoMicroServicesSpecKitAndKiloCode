@@ -153,15 +153,202 @@ public interface IEventConsumer<T> where T : IIntegrationEvent
 // Dead Letter Queues for failed messages
 ```
 
+### 3.2.1 Saga Pattern
+
+```csharp
+// Saga Orchestrator
+public interface ISagaOrchestrator<T SagaState> where T : SagaState
+{
+    Task<SagaResult> ExecuteAsync(SagaRequest request);
+    Task CompensateAsync(SagaState state);  // Rollback
+}
+
+// Order Saga Example
+public class OrderSaga : ISagaOrchestrator<OrderSagaState>
+{
+    public async Task<SagaResult> ExecuteAsync(OrderSagaRequest request)
+    {
+        // Step 1: Create Order
+        var orderResult = await _orderService.CreateAsync(request.Order);
+        if (!orderResult.Success) return SagaResult.Failed(orderResult.Error);
+        
+        // Step 2: Reserve Inventory (compensate if fails)
+        var inventoryResult = await _inventoryService.ReserveAsync(request.Items);
+        if (!inventoryResult.Success)
+        {
+            await _orderService.CancelAsync(orderResult.OrderId);
+            return SagaResult.Failed(inventoryResult.Error);
+        }
+        
+        // Step 3: Process Payment
+        var paymentResult = await _paymentService.ProcessAsync(request.Payment);
+        if (!paymentResult.Success)
+        {
+            await _inventoryService.ReleaseAsync(request.Items);
+            await _orderService.CancelAsync(orderResult.OrderId);
+            return SagaResult.Failed(paymentResult.Error);
+        }
+        
+        return SagaResult.Success(orderResult.OrderId);
+    }
+}
+
+// Saga State
+public class OrderSagaState
+{
+    public Guid OrderId { get; set; }
+    public List<InventoryReservation> Reservations { get; set; }
+    public PaymentInfo Payment { get; set; }
+    public int CurrentStep { get; set; }
+}
+
+// Saga Compensation (Rollback)
+public interface ISagaStep<TState>
+{
+    Task<bool> ExecuteAsync(TState state);
+    Task<bool> CompensateAsync(TState state);  // Rollback action
+}
+```
+
+**Saga Best Practices:**
+| Practice | Requirement |
+|----------|-------------|
+| Compensation | Every action must have rollback |
+| Idempotency | Handle duplicate events safely |
+| Timeout | Set max saga duration (30 min default) |
+| Persistence | Store saga state for recovery |
+| Monitoring | Track saga execution metrics |
+
+### 3.2.2 Event Sourcing
+
+```csharp
+// Aggregate with Event Sourcing
+public class OrderAggregate : AggregateRoot
+{
+    private List<IEvent> _events = new();
+    
+    public void Apply(OrderPlacedEvent @event)
+    {
+        Id = @event.OrderId;
+        CustomerId = @event.CustomerId;
+        Status = OrderStatus.Placed;
+    }
+    
+    public void Apply(OrderConfirmedEvent @event)
+    {
+        Status = OrderStatus.Confirmed;
+        ConfirmedAt = @event.Timestamp;
+    }
+    
+    // State is rebuilt from event history
+    public void Reconstitute(IEnumerable<IEvent> events)
+    {
+        foreach (var @event in events)
+            Apply((dynamic)@event);
+    }
+}
+
+// Event Store
+public interface IEventStore
+{
+    Task SaveEventsAsync<T>(Guid aggregateId, IEnumerable<IEvent> events);
+    Task<IEnumerable<IEvent>> GetEventsAsync(Guid aggregateId);
+    Task<IEnumerable<IEvent>> GetEventsAsync(Guid aggregateId, int fromVersion);
+}
+```
+
+**Event Sourcing Benefits:**
+- Complete audit trail
+- Temporal queries (state at any point in time)
+- Easy replay for debugging
+- Event-driven microservices
+
 ### 3.3 API Gateway Pattern
 - Single entry point for all services
 - Request routing, aggregation
 - Authentication/Authorization
 - Rate limiting, caching
 
+### 3.4 Domain-Driven Design Patterns
+
+#### Aggregate Root
+```csharp
+// Aggregate Root Example
+public class OrderAggregate : AggregateRoot
+{
+    private readonly List<OrderItem> _items = new();
+    public IReadOnlyCollection<OrderItem> Items => _items.AsReadOnly();
+    
+    public void AddItem(Product product, int quantity)
+    {
+        // Invariant: quantity must be positive
+        if (quantity <= 0)
+            throw new DomainException("Quantity must be positive");
+            
+        // Business rule: check if item already exists
+        var existing = _items.FirstOrDefault(i => i.ProductId == product.Id);
+        if (existing != null)
+            existing.IncreaseQuantity(quantity);
+        else
+            _items.Add(new OrderItem(product.Id, product.Price, quantity));
+        
+        // Raise domain event
+        AddDomainEvent(new OrderItemAddedEvent(this.Id, product.Id, quantity));
+    }
+    
+    public void Confirm()
+    {
+        // Invariant: order must have items
+        if (!_items.Any())
+            throw new DomainException("Order must have at least one item");
+            
+        Status = OrderStatus.Confirmed;
+        ConfirmedAt = DateTime.UtcNow;
+    }
+}
+```
+
+#### Value Objects
+```csharp
+// Value Object Example
+public record Money(decimal Amount, string Currency)
+{
+    public static Money Zero => new(0, "USD");
+    
+    public Money Add(Money other)
+    {
+        if (Currency != other.Currency)
+            throw new DomainException("Cannot add different currencies");
+        return new Money(Amount + other.Amount, Currency);
+    }
+    
+    public bool IsZero() => Amount == 0;
+}
+```
+
+#### Entity vs Value Object
+| Aspect | Entity | Value Object |
+|--------|--------|--------------|
+| Identity | Has ID | No identity |
+| Mutability | Usually mutable | Immutable |
+| Equality | By ID | By all properties |
+| Lifespan | Tracked | Short-lived |
+
 ---
 
 ## 4. Grade A+ Architectural Quality Standards
+
+### 4.0 Code Quality Metrics
+
+| Metric | Threshold | Tool |
+|--------|-----------|------|
+| Code Coverage | ≥80% | Coverlet/AltCover |
+| Cyclomatic Complexity | ≤15 per method | SonarQube |
+| Lines of Code | ≤500 per class | SonarQube |
+| Coupling | ≤10 dependencies | NDepend |
+| Duplication | ≤3% | SonarQube |
+| Technical Debt | ≤5 days | SonarQube |
+| Documentation | ≥70% public APIs | DocFX |
 
 ### 4.1 Service Autonomy (Required for Grade A+)
 - Each microservice owns its data and business logic
@@ -1602,7 +1789,76 @@ EMAIL_API_KEY=SG.dummy_key_for_dev
 
 ## 9. Code Quality Standards
 
-### 9.1 API Versioning
+### 9.0 Test Coverage Requirements
+
+| Test Type | Coverage Target | Purpose |
+|-----------|----------------|---------|
+| Unit Tests | ≥80% | Business logic validation |
+| Integration Tests | ≥60% | API/DB interactions |
+| E2E Tests | Key journeys | User workflows |
+
+**Test Pyramid:**
+```
+        /\
+       /  \      E2E (10%)
+      /----\     
+     /      \    Integration (30%)
+    /--------\  
+   /          \ Unit (60%)
+  --------------
+```
+
+**Test Requirements:**
+| Requirement | Standard |
+|-------------|----------|
+| Command Handlers | 100% coverage |
+| Query Handlers | 100% coverage |
+| Domain Logic | 90% coverage |
+| Repositories | Integration tests only |
+| Controllers | Minimum happy path + error cases |
+
+**CI Pipeline:**
+```bash
+# Run tests with coverage
+dotnet test --collect:"XPlat Code Coverage" \
+  --logger:"trx;LogFileName=results.trx" \
+  /p:CollectCoverage=true \
+  /p:CoverletOutputFormat=opencover
+
+# Gate: 80% coverage required
+dotnet-coverage collect "dotnet test" \
+  -o coverage.xml \
+  --threshold=80
+```
+
+### 9.1 Code Maintainability
+
+| Metric | Threshold | Tool |
+|--------|-----------|------|
+| Lines per Class | ≤500 | SonarQube |
+| Lines per Method | ≤30 | SonarQube |
+| Parameters | ≤5 | Code Analysis |
+| Nesting Depth | ≤4 | Code Analysis |
+
+### 9.2 Testability
+
+| Principle | Requirement |
+|-----------|-------------|
+| DI | All dependencies injected |
+| Mocking | Interfaces for all external calls |
+| Pure Functions | Prefer pure for business logic |
+
+### 9.3 Coupling
+
+| Type | Limit |
+|------|-------|
+| Afferent (Ca) | ≤10 |
+| Efferent (Ce) | ≤20 |
+| Instability | ≤0.7 |
+
+---
+
+### 9.4 API Versioning
 ```csharp
 // API Versioning Configuration
 services.AddApiVersioning(options =>

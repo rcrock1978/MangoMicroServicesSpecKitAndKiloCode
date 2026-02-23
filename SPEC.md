@@ -161,7 +161,94 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 });
 ```
 
-### 5.2 Health Check Endpoints
+### 5.1.1 Health Check Alerting
+
+| Condition | Alert Level | Action |
+|-----------|-------------|--------|
+| /health returns Unhealthy | Critical | Page on-call immediately |
+| /ready returns Unhealthy | Warning | Create incident |
+| DB check fails | Warning | Create incident |
+| Redis check fails | Warning | Create incident |
+| 3+ consecutive failures | Critical | Page on-call |
+
+**Health Check Response Time:**
+- Expected response time: <500ms
+- Timeout: 5 seconds
+- Retry interval: 10 seconds
+
+### 5.2 Metric Collection Standards
+
+| Metric Type | Collection Interval | Retention | Aggregation |
+|-------------|-------------------|-----------|-------------|
+| Request Rate | 10 seconds | 30 days | Sum per interval |
+| Response Time | 10 seconds | 30 days | P50, P90, P99 |
+| Error Rate | 10 seconds | 30 days | Sum per interval |
+| CPU Usage | 10 seconds | 7 days | Avg per interval |
+| Memory Usage | 10 seconds | 7 days | Avg per interval |
+| Custom Metrics | 30 seconds | 90 days | Per metric type |
+
+**Metrics Export:**
+- Push to Prometheus every 10 seconds
+- Push to Application Insights every 60 seconds
+- Export to OpenTelemetry Collector
+
+### 5.3.1 Circuit Breaker Pattern
+
+| State | Threshold | Action |
+|-------|-----------|--------|
+| Closed | Normal | Pass through |
+| Open | 5 failures/10s | Block requests |
+| Half-Open | 3 success | Test recovery |
+
+**Configuration:**
+| Setting | Value |
+|---------|-------|
+| Failure Threshold | 5 |
+| Timeout | 30 seconds |
+| Sampling Duration | 10 seconds |
+
+### 5.3.2 Trace Context Propagation
+
+| Header | Format | Required |
+|--------|--------|----------|
+| traceparent | `00-{trace-id}-{span-id}-{flags}` | Yes |
+| trace-state | key=value | No |
+
+**W3C Compliance:** All services MUST propagate trace context
+
+### 5.3.3 High Cardinality Metrics
+
+| Metric Type | Recommended Tags | Avoid |
+|-------------|-------------------|-------|
+| Request | method, endpoint, status | user_id |
+| Performance | p50, p95, p99 | per-request values |
+
+**Cardinality Limit:** ≤100 unique values per metric
+
+### 5.4 Infrastructure Availability
+
+#### Jaeger Requirements
+| Requirement | Value |
+|-------------|-------|
+| Availability | 99.9% |
+| Retention | 7 days traces |
+| Storage | 50GB default |
+
+#### Seq Requirements
+| Requirement | Value |
+|-------------|-------|
+| Availability | 99.9% |
+| Retention | 30 days logs |
+| Ingestion | 10,000 events/sec |
+
+#### OpenTelemetry Collector
+| Requirement | Value |
+|-------------|-------|
+| Deployment | Sidecar per service |
+| Batch Size | 1000 spans |
+| Timeout | 5 seconds |
+
+### 5.5 Health Check Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -235,7 +322,32 @@ services.AddLogging(loggingBuilder =>
 });
 ```
 
-### 7.2 Log Structure
+### 7.2 Log Retention Policy
+
+| Environment | Retention Period | Max Storage |
+|-------------|-----------------|-------------|
+| Development | 7 days | 1 GB |
+| Staging | 30 days | 10 GB |
+| Production | 90 days | 100 GB |
+
+**Log Level Standards:**
+| Level | Usage |
+|-------|-------|
+| Debug | Detailed debugging information, variable values |
+| Information | General application events, user actions |
+| Warning | Unexpected but handled issues |
+| Error | Errors that affect single operation |
+| Critical | System-level failures, data loss risk |
+
+### 7.3 Log Volume Management
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| Logs per second | >1000 | Enable sampling |
+| Error rate | >5% | Alert on-call |
+| Disk usage | >80% | Archive old logs |
+
+### 7.4 Log Structure
 
 ```json
 {
@@ -250,6 +362,268 @@ services.AddLogging(loggingBuilder =>
   }
 }
 ```
+
+---
+
+## 8. Swagger/OpenAPI Documentation
+
+### 7.1 Error Response Standards
+
+```csharp
+// Standard Error Response
+public class ErrorResponse
+{
+    public string Type { get; set; }          // Error type identifier
+    public string Title { get; set; }          // Error title
+    public int Status { get; set; }            // HTTP status code
+    public string Detail { get; set; }         // Detailed error message
+    public string Instance { get; set; }       // Error instance identifier
+    public Dictionary<string, string[]> Errors { get; set; }  // Validation errors
+    public DateTime Timestamp { get; set; }     // Error timestamp
+    public string TraceId { get; set; }        // Correlation ID
+}
+
+// Validation Error Response
+public class ValidationErrorResponse : ErrorResponse
+{
+    public List<ValidationError> ValidationErrors { get; set; }
+}
+
+public class ValidationError
+{
+    public string Field { get; set; }
+    public string Message { get; set; }
+    public string Code { get; set; }
+}
+```
+
+### 7.2 Pagination Standards
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| page | int | No | 1 | Page number (1-based) |
+| pageSize | int | No | 10 | Items per page (max 100) |
+| sortBy | string | No | - | Sort field name |
+| sortOrder | string | No | asc | Sort direction (asc/desc) |
+
+**Pagination Response Format:**
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 10,
+  "totalCount": 100,
+  "totalPages": 10,
+  "hasNext": true,
+  "hasPrevious": false
+}
+```
+
+### 7.3 Rate Limiting Requirements
+
+| Service | Requests/Minute | Burst | Notes |
+|---------|-----------------|-------|-------|
+| Gateway | 1000 | 1500 | Per IP |
+| Auth API | 100 | 150 | Per user |
+| Product API | 500 | 750 | Per IP |
+| Cart API | 200 | 300 | Per user |
+| Order API | 100 | 150 | Per user |
+| Coupon API | 50 | 75 | Per user |
+
+**Rate Limit Headers:**
+- `X-RateLimit-Limit`: Maximum requests per window
+- `X-RateLimit-Remaining`: Remaining requests
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+- `Retry-After`: Seconds to wait (when limited)
+
+### 7.4 Timeout Standards
+
+| Operation Type | Timeout | Notes |
+|----------------|---------|-------|
+| HTTP Request (Gateway) | 30s | User-facing APIs |
+| Internal Service Call | 10s | Service-to-service |
+| Database Query | 5s | EF Core queries |
+| Cache Operation | 2s | Redis operations |
+| Message Publish | 5s | RabbitMQ publish |
+
+### 7.5 File Upload Requirements
+
+**Upload Endpoint:**
+- `POST /api/v1/uploads` - Upload file
+- `GET /api/v1/uploads/{id}` - Get upload status
+- `DELETE /api/v1/uploads/{id}` - Delete upload
+
+**Constraints:**
+| Parameter | Limit |
+|-----------|-------|
+| Max File Size | 10 MB |
+| Allowed Types | .jpg, .jpeg, .png, .gif, .pdf, .doc, .docx |
+| Max Files per Request | 5 |
+| Storage | Azure Blob / S3 |
+
+**Response:**
+```json
+{
+  "id": "guid",
+  "fileName": "document.pdf",
+  "contentType": "application/pdf",
+  "size": 1024000,
+  "url": "https://storage.blob.net/uploads/guid",
+  "status": "Completed",
+  "uploadedAt": "2026-02-22T10:00:00Z"
+}
+```
+
+### 7.6 Batch Operations
+
+**Batch Endpoint:**
+- `POST /api/v1/batch` - Execute batch operations
+
+**Request:**
+```json
+{
+  "operations": [
+    { "method": "POST", "path": "/products", "body": {...} },
+    { "method": "PUT", "path": "/products/123", "body": {...} },
+    { "method": "DELETE", "path": "/products/456" }
+  ]
+}
+```
+
+**Constraints:**
+| Parameter | Limit |
+|-----------|-------|
+| Max Operations | 100 per request |
+| Timeout | 60 seconds |
+| Atomic | No (partial success allowed) |
+
+### 7.7 API Naming Conventions
+
+| Resource | Plural/Singular | Example |
+|----------|-----------------|---------|
+| Collection | Plural | /products |
+| Single | Plural + ID | /products/{id} |
+| Sub-resource | Nested | /orders/{id}/items |
+| Action | Verb | /products/{id}/activate |
+
+**Query Parameters:**
+- Use camelCase: `pageSize`, `sortBy`, `filterBy`
+- Boolean: `isActive`, `includeDetails`
+
+### 7.8 Content-Type Negotiation
+
+| Accept Header | Response Format |
+|--------------|----------------|
+| application/json | JSON (default) |
+| application/xml | XML |
+| text/html | HTML (for browser) |
+
+**Default:** application/json if no Accept header
+
+### 7.9 API Key Authentication
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| X-Api-Key | 32-char string | Server-to-server auth |
+| X-Api-Secret | 64-char string | HMAC signing |
+
+**Rate Limits for API Keys:**
+| Plan | Requests/Hour | Burst |
+|------|---------------|-------|
+| Free | 100 | 150 |
+| Basic | 1,000 | 1,500 |
+| Pro | 10,000 | 15,000 |
+| Enterprise | 100,000 | 150,000 |
+
+### 7.10 Brute Force Protection
+
+| Action | Threshold | Lockout Duration |
+|--------|-----------|------------------|
+| Login attempts | 5 failures | 15 minutes |
+| Password reset | 3 requests | 1 hour |
+| API key | 10 failures | 1 hour |
+
+**Headers:**
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `X-RateLimit-Reset`
+
+### 7.11 CSRF Protection
+
+| Header | Value |
+|--------|-------|
+| X-CSRF-Token | Required for state-changing operations |
+| SameSite | Strict (cookies) |
+
+**Exempt:** GET requests, API keys
+
+### 7.12 Password Complexity Requirements
+
+| Rule | Requirement |
+|------|-------------|
+| Minimum Length | 8 characters |
+| Maximum Length | 128 characters |
+| Uppercase | At least 1 |
+| Lowercase | At least 1 |
+| Digit | At least 1 |
+| Special Character | At least 1 |
+| Common Password Check | Must not be in top 10,000 |
+
+### 7.13 Concurrent Request Handling
+
+| Scenario | Handling |
+|----------|----------|
+| Same user, multiple requests | Allow (use optimistic concurrency) |
+| Duplicate submissions | Idempotency key required |
+| Race conditions | Use ETags / version numbers |
+
+**Idempotency:**
+- POST, PUT, DELETE must support idempotency key
+- Header: `Idempotency-Key` (UUID)
+- Response: `Idempempotency-Key` echoed back
+- Cache responses for 24 hours
+
+### 7.14 Long-Running Operations
+
+| Pattern | Use Case | Timeout |
+|---------|----------|---------|
+| Async Response | File processing | 30 minutes |
+| Webhooks | External callbacks | N/A |
+| Polling | Status checks | 5 minutes |
+
+**Async Response Pattern:**
+```json
+// Immediate Response (202 Accepted)
+{
+  "operationId": "uuid",
+  "status": "Accepted",
+  "_links": {
+    "status": "/api/v1/operations/{id}",
+    "result": "/api/v1/operations/{id}/result"
+  }
+}
+```
+
+### 7.15 Request Cancellation
+
+| Mechanism | Header | Behavior |
+|-----------|--------|----------|
+| Client Disconnect | N/A | Server continues processing |
+| Cancellation Token | X-Cancellation-Token | Graceful stop |
+| Timeout | X-Request-Timeout | Auto-cancel |
+
+**Timeout Headers:**
+- `X-Request-Timeout`: Max request duration (ISO 8601 duration)
+- Response: 408 Request Timeout if exceeded
+
+### 7.16 Edge Case Handling
+
+| Edge Case | Handling |
+|-----------|----------|
+| Header size > 8KB | 431 Request Header Fields Too Large |
+| Invalid Unicode | Replace with U+FFFD, log warning |
+| Null bytes in strings | Reject with 400 Bad Request |
+| Oversized payload | 413 Payload Too Large |
 
 ---
 
@@ -329,7 +703,194 @@ app.UseSwaggerUI(c =>
 
 ## 9. JWT Authentication
 
-### 9.1 Configuration
+### 9.1 Authorization (RBAC)
+
+```csharp
+// Roles Definition
+public static class Roles
+{
+    public const string Admin = "Admin";
+    public const string Customer = "Customer";
+    public const string Support = "Support";
+    public const string API = "API";
+}
+
+// Permissions
+public static class Permissions
+{
+    // Product permissions
+    public const string ProductsRead = "products:read";
+    public const string ProductsWrite = "products:write";
+    public const string ProductsDelete = "products:delete";
+    
+    // Order permissions
+    public const string OrdersRead = "orders:read";
+    public const string OrdersWrite = "orders:write";
+    
+    // Cart permissions
+    public const string CartRead = "cart:read";
+    public const string CartWrite = "cart:write";
+    
+    // User management
+    public const string UsersRead = "users:read";
+    public const string UsersWrite = "users:write";
+}
+
+// Role-Permission Mapping
+public static class RolePermissions
+{
+    public static readonly Dictionary<string, string[]> Permissions = new()
+    {
+        [Roles.Admin] = new[] { "*" },  // All permissions
+        [Roles.Support] = new[] { 
+            Permissions.ProductsRead, 
+            Permissions.OrdersRead,
+            Permissions.UsersRead 
+        },
+        [Roles.Customer] = new[] { 
+            Permissions.ProductsRead,
+            Permissions.CartRead,
+            Permissions.CartWrite,
+            Permissions.OrdersRead,
+            Permissions.OrdersWrite
+        },
+        [Roles.API] = new[] { 
+            Permissions.ProductsRead,
+            Permissions.OrdersRead
+        }
+    };
+}
+
+// Authorization Policy Example
+services.AddAuthorization(options =>
+{
+    options.AddPolicy("CanManageProducts", policy =>
+        policy.RequireRole(Roles.Admin));
+    
+    options.AddPolicy("CanReadOrders", policy =>
+        policy.RequireAssertion(ctx => 
+            ctx.User.IsInRole(Roles.Admin) ||
+            ctx.User.HasPermission(Permissions.OrdersRead)));
+});
+```
+
+### 9.2 Password Security
+
+| Requirement | Value |
+|-------------|-------|
+| Minimum Length | 8 characters |
+| Maximum Length | 128 characters |
+| Require Uppercase | Yes (at least 1) |
+| Require Lowercase | Yes (at least 1) |
+| Require Number | Yes (at least 1) |
+| Require Special Character | Yes (at least 1) |
+| Hashing Algorithm | bcrypt (work factor 12) or Argon2id |
+| Maximum Login Attempts | 5 |
+| Lockout Duration | 15 minutes |
+
+### 9.3 Session Management
+
+| Setting | Value |
+|---------|-------|
+| Session Timeout | 30 minutes idle |
+| Absolute Session Lifetime | 24 hours |
+| Sliding Expiration | Yes |
+| Secure Cookie | Yes (HTTPS only) |
+| HttpOnly Cookie | Yes |
+| SameSite Policy | Strict |
+
+### 9.4 Multi-Factor Authentication (MFA)
+
+**MFA Methods:**
+| Method | Code Length | Expiry | Notes |
+|--------|-------------|--------|-------|
+| TOTP (Authenticator) | 6 digits | 30 seconds | Time-based |
+| Email OTP | 6 digits | 5 minutes | Less secure |
+| SMS OTP | 6 digits | 5 minutes | Deprecated - use TOTP |
+
+**MFA Requirements:**
+- Optional for customers (enabled by default for Admin role)
+- Must be enabled within 30 days for Admin users
+- Backup codes: 10 single-use codes generated on enable
+- Trusted devices: 30 days expiry
+
+### 9.5 Data Encryption
+
+**At Rest:**
+| Data Type | Encryption | Key Management |
+|-----------|------------|----------------|
+| Database fields | AES-256 | Azure Key Vault |
+| File storage | AES-256 | Azure Key Vault |
+| Backups | AES-256 | Offline secure storage |
+| Logs | None (PII redaction) | N/A |
+
+**In Transit:**
+| Channel | Protocol | Version |
+|---------|----------|---------|
+| External API | TLS | 1.3 |
+| Internal Service | TLS | 1.2+ |
+| Database | TLS | 1.2 |
+
+**PII Fields (Require Encryption):**
+- Passwords (hashed, not encrypted)
+- Credit card numbers (tokenized)
+- Social Security Numbers
+- Personal addresses
+- Phone numbers
+
+### 9.6 JWT Configuration
+
+### 9.7 Security Edge Cases
+
+#### Concurrent Login Handling
+| Scenario | Behavior |
+|----------|----------|
+| Same user, different devices | Allow (no limit) |
+| Same user, same device | Reuse existing session |
+| Token theft | Revoke all sessions option |
+
+#### Password Change with Active Token
+| Action | Behavior |
+|--------|----------|
+| Password changed | All tokens invalidated |
+| Notification | Email sent to user |
+| Force logout | All devices logged out |
+
+#### Token Revocation
+| Method | Endpoint | Use Case |
+|--------|----------|----------|
+| Revoke single | POST /auth/revoke | Specific token |
+| Revoke all | POST /auth/revoke-all | Account security |
+| Token blacklist | Redis set | Active until expiry |
+
+**Revocation Response:**
+```json
+{
+  "success": true,
+  "revokedAt": "2026-02-22T10:00:00Z",
+  "tokensRevoked": 3
+}
+```
+
+#### Account Deletion with Active Sessions
+| Step | Action |
+|------|--------|
+| 1 | Mark account as deleted |
+| 2 | Revoke all tokens |
+| 3 | Anonymize personal data |
+| 4 | Close all sessions |
+| 5 | Return 401 for future requests |
+
+#### Clock Skew Tolerance
+| Setting | Value |
+|---------|-------|
+| Accept Future | 60 seconds |
+| Accept Past | 0 seconds |
+| NTP Sync | Required |
+
+---
+
+### 9.8 Observability for Security
 
 ```csharp
 // Program.cs
@@ -396,6 +957,79 @@ services.AddMassTransit(x =>
 - Exchange: `mango.{servicename}`
 - Queue: `{servicename}.{eventname}`
 - Dead Letter Queue: `{servicename}.{eventname}.dlq`
+
+---
+
+## 10.3 Container Orchestration Standards
+
+**Docker Compose Best Practices:**
+| Practice | Requirement |
+|----------|-------------|
+| Image Tag | Always use specific versions (not :latest) |
+| Restart Policy | Always use `restart: unless-stopped` |
+| Health Checks | Required for all application containers |
+| Resource Limits | Required for all containers |
+| Logging | Use json logging driver |
+| Networks | Use custom bridge networks |
+
+**Service Dependencies:**
+```yaml
+services:
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+```
+
+### 10.4 Service Mesh Requirements
+
+**When to Use Service Mesh:**
+- Service-to-service mTLS encryption
+- Distributed tracing enhancement
+- Traffic management (canary, blue-green)
+- Circuit breaker at network level
+
+**Service Mesh Features (Future):**
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| mTLS | Medium | Istio/Linkerd |
+| Traffic Splitting | Medium | Canary deployments |
+| Observability | High | Automatic tracing |
+| Rate Limiting | Low | L7 rate limiting |
+
+### 10.5 Scaling Requirements
+
+| Scenario | Configuration |
+|----------|----------------|
+| Horizontal Scaling | Add pod replicas (HPA) |
+| Vertical Scaling | Increase CPU/memory requests |
+| Database Scaling | Read replicas |
+| Cache Scaling | Redis Cluster mode |
+
+**Auto-scaling Triggers:**
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| CPU | >70% | Scale up 1 replica |
+| Memory | >80% | Scale up 1 replica |
+| Request Latency | >500ms p99 | Scale up 1 replica |
+| Error Rate | >5% | Alert + scale |
+
+### 10.6 Failure Scenarios
+
+| Scenario | Handling |
+|----------|----------|
+| Database unavailable | Return 503, circuit breaker |
+| Redis unavailable | Fallback to in-memory, alert |
+| RabbitMQ unavailable | Queue locally, retry on recover |
+| Network partition | Graceful degradation |
+| Service unavailable | Return 502, fallback service |
+
+**Circuit Breaker States:**
+- Closed: Normal operation
+- Open: Fail fast, return cached response
+- Half-Open: Test if service recovered
 
 ---
 
@@ -571,6 +1205,48 @@ volumes:
 ---
 
 ## 12. Kubernetes Manifests
+
+### 12.0 Kubernetes Requirements
+
+**Required Resources per Service:**
+
+| Resource | Request | Limit | Notes |
+|----------|---------|-------|-------|
+| CPU | 200m | 500m | 0.2 to 0.5 cores |
+| Memory | 256Mi | 512Mi | 256MB to 512MB |
+| Replicas (Production) | 3 | 10 | Min 3, HPA max 10 |
+| Replicas (Staging) | 2 | 5 | Min 2, HPA max 5 |
+
+**Pod Disruption Budget:**
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: product-api-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: product-api
+```
+
+**Resource Quotas:**
+```yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mango-quota
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    pods: "50"
+    services: "20"
+    secrets: "30"
+    configmaps: "30"
+```
 
 ### 12.1 Namespace & ConfigMap
 
@@ -867,7 +1543,44 @@ kubectl scale deployment product-api --replicas=5 -n mango-production
 - Visual Studio 2026 or VS Code
 - SQL Server Management Studio
 
-### 15.2 Running Locally
+### 15.2 Database Migrations
+
+**Migration Standards:**
+
+| Rule | Requirement |
+|------|-------------|
+| Migration Naming | `{Timestamp}_{Description}` |
+| Idempotent | Must handle already-applied migrations |
+| Reversible | Include DOWN script or use idempotent operations |
+| Test Data | Include seed data for development |
+| Large Data | Use separate data migration process |
+
+**Migration Commands:**
+```bash
+# Add migration (per service)
+dotnet ef migrations add InitialCreate --project src/Services/ProductAPI
+
+# Apply migrations
+dotnet ef database update --project src/Services/ProductAPI
+
+# Remove migration (if not applied)
+dotnet ef migrations remove --project src/Services/ProductAPI
+
+# Generate SQL script (for review)
+dotnet ef migrations script --project src/Services/ProductAPI -o migrate.sql
+
+# List migrations
+dotnet ef migrations list --project src/Services/ProductAPI
+```
+
+**Migration Best Practices:**
+1. Never modify existing migrations - create new ones
+2. Always test migrations in staging before production
+3. Include rollback strategy in PR description
+4. Use transactions for multi-step migrations
+5. Archive old migrations after 1 year
+
+### 15.3 Running Locally
 
 1. Clone repository
 2. Run `docker-compose up -d` (infrastructure only)
