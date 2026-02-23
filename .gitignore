@@ -49,6 +49,7 @@ docs/dev
 # Extension system
 .specify/extensions/.cache/
 .specify/extensions/.backup
+.specify/checklists/
 
 
 src/Services/AuthAPI/bin/Debug/net9.0/
@@ -70,3 +71,9 @@ src/Shared/Mango.Common/obj/*
 src/Services/AuthAPI/obj/*
 src/Services/ProductAPI/obj/*
 src/Services/ProductAPI/bin/Debug/*
+src/Services/Gateway/bin/Debug/*
+src/Services/Gateway/obj/Debug/*
+src/Services/OrderAPI/bin/Debug/*
+src/Services/OrderAPI/obj/Debug/*
+src/Services/ShoppingCartAPI/bin/Debug/*
+src/Services/ShoppingCartAPI/obj/Debug/*
