@@ -77,3 +77,7 @@ src/Services/OrderAPI/bin/Debug/*
 src/Services/OrderAPI/obj/Debug/*
 src/Services/ShoppingCartAPI/bin/Debug/*
 src/Services/ShoppingCartAPI/obj/Debug/*
+src/Services/CouponAPI/bin/Debug/*
+src/Services/CouponAPI/obj/Debug/*
+src/Services/RewardAPI/bin/Debug/*
+src/Services/RewardAPI/obj/Debug/*
