@@ -5913,11 +5913,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\ShoppingCartAPI\\Mango.Services.ShoppingCartAPI.csproj",
-      "projectName": "Mango.Services.ShoppingCartAPI",
-      "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\ShoppingCartAPI\\Mango.Services.ShoppingCartAPI.csproj",
+      "projectUniqueName": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\EmailAPI\\Mango.Services.EmailAPI.csproj",
+      "projectName": "Mango.Services.EmailAPI",
+      "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\EmailAPI\\Mango.Services.EmailAPI.csproj",
       "packagesPath": "C:\\Users\\LEGION\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\ShoppingCartAPI\\obj\\",
+      "outputPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Services\\EmailAPI\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -5938,14 +5938,14 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj": {
-              "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj"
+            "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj": {
+              "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj"
             },
-            "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj": {
-              "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj"
+            "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj": {
+              "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj"
             },
-            "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj": {
-              "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj"
+            "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj": {
+              "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj"
             }
           }
         }

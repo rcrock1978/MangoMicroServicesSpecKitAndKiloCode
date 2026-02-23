@@ -7643,11 +7643,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
+      "projectUniqueName": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
       "projectName": "Mango.Infrastructure",
-      "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
+      "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
       "packagesPath": "C:\\Users\\LEGION\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\obj\\",
+      "outputPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -7668,11 +7668,11 @@
         "net9.0": {
           "targetAlias": "net9.0",
           "projectReferences": {
-            "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj": {
-              "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj"
+            "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj": {
+              "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Common\\Mango.Common.csproj"
             },
-            "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj": {
-              "projectPath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj"
+            "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj": {
+              "projectPath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj"
             }
           }
         }

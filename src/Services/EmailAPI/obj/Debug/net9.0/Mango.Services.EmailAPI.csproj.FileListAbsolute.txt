@@ -1,0 +1,9 @@
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.csproj.AssemblyReference.cache
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\rpswa.dswa.cache.json
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.GeneratedMSBuildEditorConfig.editorconfig
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.AssemblyInfoInputs.cache
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.AssemblyInfo.cs
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.csproj.CoreCompileInputs.cache
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.MvcApplicationPartsAssemblyInfo.cs
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.MvcApplicationPartsAssemblyInfo.cache
+c:\Users\LEGION\Desktop\CODE\TestMangoMicroservices\MangoMicroservice\src\Services\EmailAPI\obj\Debug\net9.0\Mango.Services.EmailAPI.sourcelink.json

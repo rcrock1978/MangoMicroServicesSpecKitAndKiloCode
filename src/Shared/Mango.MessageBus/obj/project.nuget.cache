@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "qyeb9LLO2II=",
+  "dgSpecHash": "i6ARQkgr3I0=",
   "success": true,
-  "projectFilePath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj",
+  "projectFilePath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.MessageBus\\Mango.MessageBus.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\LEGION\\.nuget\\packages\\masstransit\\8.2.0\\masstransit.8.2.0.nupkg.sha512",
     "C:\\Users\\LEGION\\.nuget\\packages\\masstransit.abstractions\\8.2.0\\masstransit.abstractions.8.2.0.nupkg.sha512",

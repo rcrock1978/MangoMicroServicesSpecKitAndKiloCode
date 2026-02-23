@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "9ZfnacsFNvQ=",
+  "dgSpecHash": "1RQiJmEtxL0=",
   "success": true,
-  "projectFilePath": "c:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
+  "projectFilePath": "C:\\Users\\LEGION\\Desktop\\CODE\\TestMangoMicroservices\\MangoMicroservice\\src\\Shared\\Mango.Infrastructure\\Mango.Infrastructure.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\LEGION\\.nuget\\packages\\aspnetcore.healthchecks.rabbitmq\\8.0.1\\aspnetcore.healthchecks.rabbitmq.8.0.1.nupkg.sha512",
     "C:\\Users\\LEGION\\.nuget\\packages\\aspnetcore.healthchecks.redis\\8.0.1\\aspnetcore.healthchecks.redis.8.0.1.nupkg.sha512",
