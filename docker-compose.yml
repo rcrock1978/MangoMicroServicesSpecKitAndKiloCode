@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ============================================
   # INFRASTRUCTURE SERVICES
@@ -60,8 +58,8 @@ services:
 
   mango-gateway:
     build:
-      context: ./src
-      dockerfile: ../Mango.GatewaySolution/Dockerfile
+      context: ./src/Services/Gateway
+      dockerfile: Dockerfile
     container_name: mango-gateway
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
@@ -79,21 +77,21 @@ services:
     networks:
       - mango-network
 
-  mango-web:
-    build:
-      context: ./src
-      dockerfile: ../Mango.Web/Dockerfile
-    container_name: mango-web
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:80
-      - GatewayUrl=http://mango-gateway:80
-    ports:
-      - "5001:80"
-    depends_on:
-      - mango-gateway
-    networks:
-      - mango-network
+  # mango-web:
+  #   build:
+  #     context: ./src
+  #     dockerfile: ../Mango.Web/Dockerfile
+  #   container_name: mango-web
+  #   environment:
+  #     - ASPNETCORE_ENVIRONMENT=Development
+  #     - ASPNETCORE_URLS=http://+:80
+  #     - GatewayUrl=http://mango-gateway:80
+  #   ports:
+  #     - "5001:80"
+  #   depends_on:
+  #     - mango-gateway
+  #   networks:
+  #     - mango-network
 
   auth-api:
     build:
